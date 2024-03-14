@@ -18,7 +18,11 @@ pub fn DynamicArray(comptime T: type) type {
         allocator: Allocator,
 
         pub fn init(allocator: Allocator) !Self {
-            return Self{ .count = 0, .data = try alloc(T, allocator, 8), .allocator = allocator };
+            return Self{
+                .count = 0,
+                .data = try alloc(T, allocator, 8),
+                .allocator = allocator,
+            };
         }
 
         pub fn deinit(self: Self) void {
@@ -29,7 +33,7 @@ pub fn DynamicArray(comptime T: type) type {
             const capacity = self.data.len;
 
             if (capacity < self.count + 1) {
-                const new_capacity = if (capacity < 8) 8 else capacity * 2;
+                const new_capacity = grow_capacity(capacity);
                 self.data = try realloc(self.allocator, self.data, new_capacity);
             }
 

@@ -21,3 +21,7 @@ pub fn realloc(allocator: Allocator, pointer: anytype, new_size: usize) ![]@type
     const PointerType = @typeInfo(@TypeOf(pointer)).Pointer.child;
     return try reallocate(PointerType, allocator, pointer, new_size);
 }
+
+pub fn grow_capacity(capacity: usize) usize {
+    return if (capacity <= 0) 8 else capacity * 2;
+}

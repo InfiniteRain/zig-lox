@@ -9,10 +9,12 @@ const grow_capacity = memory.grow_capacity;
 const alloc = memory.alloc;
 const realloc = memory.realloc;
 const free = memory.free;
-const adt = @import("dynamic_array.zig");
-const DynamicArray = adt.DynamicArray;
+const dynamic_array = @import("dynamic_array.zig");
+const DynamicArray = dynamic_array.DynamicArray;
 const value = @import("value.zig");
 const Value = value.Value;
+const rle_array = @import("rle_array.zig");
+const RleArray = rle_array.RleArray;
 
 pub const OpCode = union(enum(u8)) { operand: u8, ret, constant };
 
@@ -21,7 +23,7 @@ pub const Chunk = struct {
 
     code: DynamicArray(OpCode),
     constants: DynamicArray(Value),
-    lines: DynamicArray(u64),
+    lines: RleArray(u64),
 
     pub fn init(allocator: Allocator) !Self {
         const code = try DynamicArray(OpCode).init(allocator);
@@ -30,7 +32,7 @@ pub const Chunk = struct {
         const constants = try DynamicArray(Value).init(allocator);
         errdefer constants.deinit();
 
-        const lines = try DynamicArray(u64).init(allocator);
+        const lines = try RleArray(u64).init(allocator);
 
         return .{
             .code = code,
@@ -54,8 +56,8 @@ pub const Chunk = struct {
         return self.code.data[index];
     }
 
-    pub fn read_line(self: *const Self, index: usize) u64 {
-        return self.lines.data[index];
+    pub fn read_line(self: *const Self, index: usize) !u64 {
+        return self.lines.get(index);
     }
 
     pub fn write_constant(self: *Self, val: Value) !usize {
@@ -109,14 +111,14 @@ test "write_opcode adds opcode and line as expected" {
     try expect(chunk.code.count == 1);
     try expect(chunk.code.data[0] == OpCode.ret);
     try expect(chunk.lines.count == 1);
-    try expect(chunk.lines.data[0] == 10);
+    try expect(try chunk.lines.get(0) == 10);
 
     try chunk.write_opcode(OpCode.constant, 20);
 
     try expect(chunk.code.count == 2);
     try expect(chunk.code.data[1] == OpCode.constant);
     try expect(chunk.lines.count == 2);
-    try expect(chunk.lines.data[1] == 20);
+    try expect(try chunk.lines.get(1) == 20);
 }
 
 test "read_opcode works as expected" {
@@ -141,8 +143,8 @@ test "read_line works as expected" {
     try chunk.write_opcode(OpCode.ret, 10);
     try chunk.write_opcode(OpCode.constant, 20);
 
-    try expect(chunk.read_line(0) == 10);
-    try expect(chunk.read_line(1) == 20);
+    try expect(try chunk.read_line(0) == 10);
+    try expect(try chunk.read_line(1) == 20);
 }
 
 test "write_constant and read_constant work as expected" {
