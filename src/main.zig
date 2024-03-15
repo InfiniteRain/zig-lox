@@ -13,12 +13,11 @@ pub fn main() !void {
     var my_chunk = try Chunk.init(allocator);
     defer my_chunk.deinit();
 
-    const constant = try my_chunk.write_constant(1.12);
-
-    try my_chunk.write_opcode(OpCode.constant, 123);
-    try my_chunk.write_opcode(OpCode{ .operand = @intCast(constant) }, 123);
-    try my_chunk.write_opcode(OpCode.ret, 123);
+    for (0..257) |i| {
+        try my_chunk.write_constant(10, @intCast(i));
+    }
+    try my_chunk.write_opcode(OpCode.ret, 257);
 
     var disassmbler = Disassmbler{ .chunk = &my_chunk };
-    disassmbler.disassemble_chunk("test chunk");
+    try disassmbler.disassemble_chunk("test chunk");
 }

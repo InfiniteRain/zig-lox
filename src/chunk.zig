@@ -16,7 +16,12 @@ const Value = value.Value;
 const rle_array = @import("rle_array.zig");
 const RleArray = rle_array.RleArray;
 
-pub const OpCode = union(enum(u8)) { operand: u8, ret, constant };
+pub const OpCode = union(enum(u8)) {
+    operand: u8,
+    ret,
+    constant,
+    constant_long,
+};
 
 pub const Chunk = struct {
     const Self = @This();
@@ -47,9 +52,23 @@ pub const Chunk = struct {
         self.lines.deinit();
     }
 
-    pub fn write_opcode(self: *Self, val: OpCode, line: u64) !void {
-        try self.code.push(val);
+    pub fn write_opcode(self: *Self, opcode: OpCode, line: u64) !void {
+        try self.code.push(opcode);
         try self.lines.push(line);
+    }
+
+    pub fn write_constant(self: *Self, val: Value, line: u64) !void {
+        const index = try self.add_constant(val);
+
+        if (index < 256) {
+            try self.write_opcode(OpCode.constant, line);
+            try self.write_opcode(OpCode{ .operand = @intCast(index) }, line);
+        } else {
+            try self.write_opcode(OpCode.constant_long, line);
+            try self.write_opcode(OpCode{ .operand = @intCast(0xFF & (@as(u24, @intCast(index & 0xFFFFFF)) >> 16)) }, line);
+            try self.write_opcode(OpCode{ .operand = @intCast(0xFF & (@as(u24, @intCast(index & 0xFFFFFF)) >> 8)) }, line);
+            try self.write_opcode(OpCode{ .operand = @intCast(0xFF & (@as(u24, @intCast(index & 0xFFFFFF)))) }, line);
+        }
     }
 
     pub fn read_opcode(self: *const Self, index: usize) OpCode {
@@ -57,15 +76,15 @@ pub const Chunk = struct {
     }
 
     pub fn read_line(self: *const Self, index: usize) !u64 {
-        return self.lines.get(index);
+        return try self.lines.get(index);
     }
 
-    pub fn write_constant(self: *Self, val: Value) !usize {
+    pub fn add_constant(self: *Self, val: Value) !usize {
         try self.constants.push(val);
         return self.constants.count - 1;
     }
 
-    pub fn read_constant(self: *Self, index: usize) Value {
+    pub fn get_constant(self: *Self, index: usize) Value {
         return self.constants.data[index];
     }
 };
@@ -153,9 +172,10 @@ test "write_constant and read_constant work as expected" {
     var chunk = try Chunk.init(allocator);
     defer chunk.deinit();
 
-    const index1 = try chunk.write_constant(10.2);
-    const index2 = try chunk.write_constant(20.6);
+    for (0..300) |i| {
+        const val: f64 = @floatFromInt(i);
+        const index = try chunk.add_constant(val);
 
-    try expect(@fabs(chunk.read_constant(index1) - 10.2) < 1e-9);
-    try expect(@fabs(chunk.read_constant(index2) - 20.6) < 1e-9);
+        try expect(@fabs(chunk.get_constant(index) - val) < 1e-9);
+    }
 }
