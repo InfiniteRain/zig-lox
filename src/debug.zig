@@ -1,107 +1,92 @@
 const std = @import("std");
 const debug = std.debug;
 const print = debug.print;
-const chunk = @import("chunk.zig");
-const OpCode = chunk.OpCode;
-const Chunk = chunk.Chunk;
-const value = @import("value.zig");
-const Value = value.Value;
+const chunk_package = @import("chunk.zig");
+const OpCode = chunk_package.OpCode;
+const Chunk = chunk_package.Chunk;
+const value_package = @import("value.zig");
+const Value = value_package.Value;
+const builtin = @import("builtin");
 
-pub const Disassembler = struct {
-    const Self = @This();
+pub const is_debug_mode = builtin.mode == .Debug;
+pub const debug_trace_execution = true;
 
-    chunk: *Chunk,
+pub fn assertInBounds(name: []const u8, index: usize, count: usize) void {
+    if (index >= count) {
+        std.debug.panic("attempt to read {s} at invalid index {}, last index is {}", .{ name, index, count - 1 });
+    }
+}
 
-    pub fn disassemble_chunk(self: *Self, name: []const u8) !void {
-        print("== {s} ==\n", .{name});
+pub fn disassembleChunk(chunk: *const Chunk, name: []const u8) !void {
+    print("== {s} ==\n", .{name});
 
-        var offset: usize = 0;
+    var offset: usize = 0;
 
-        while (offset < self.chunk.code.count) {
-            offset = try self.disassemble_instruction(offset);
-        }
+    while (offset < chunk.code.count) {
+        offset = try disassembleInstruction(chunk, offset);
+    }
+}
+
+pub fn disassembleInstruction(chunk: *const Chunk, offset: usize) !usize {
+    print("{:0>4} ", .{offset});
+
+    const line = try chunk.getLine(offset);
+
+    if (offset > 0 and line == try chunk.getLine(offset - 1)) {
+        print("    | ", .{});
+    } else {
+        print("{:0>4}| ", .{line});
     }
 
-    fn disassemble_instruction(self: *Self, offset: usize) !usize {
-        print("{:0>4} ", .{offset});
+    const instruction = chunk.code.data[offset];
 
-        const line = try self.chunk.read_line(offset);
+    return switch (@as(OpCode, @enumFromInt(instruction))) {
+        OpCode.ret => simpleInstruction("RET", offset),
+        OpCode.constant => constantInstruction(chunk, "CONSTANT", offset),
+        OpCode.constant_long => constantLongInstruction(chunk, "CONSTANT_LONG", offset),
+        OpCode.negate => simpleInstruction("NEGATE", offset),
+        OpCode.add => simpleInstruction("ADD", offset),
+        OpCode.subtract => simpleInstruction("SUBTRACT", offset),
+        OpCode.multiply => simpleInstruction("MULTIPLY", offset),
+        OpCode.divide => simpleInstruction("DIVIDE", offset),
+        _ => blk: {
+            print("{s: <16} Error: invalid opcode, got {}\n", .{ "?", instruction });
+            break :blk offset + 1;
+        },
+    };
+}
 
-        if (offset > 0 and line == try self.chunk.read_line(offset - 1)) {
-            print("    | ", .{});
-        } else {
-            print("{:0>4}| ", .{line});
-        }
+fn constantInstruction(chunk: *const Chunk, name: []const u8, offset: usize) usize {
+    const index = chunk.readByte(offset + 1);
+    print("{s: <16} {:0>4} '", .{ name, index });
+    printPlainValue(extractConstant(chunk, index));
+    print("'\n", .{});
 
-        const instruction = self.chunk.code.data[offset];
+    return offset + 2;
+}
 
-        return switch (instruction) {
-            OpCode.ret => Self.simple_instruction("RET", offset),
-            OpCode.constant => self.constant_instruction("CONSTANT", offset),
-            OpCode.constant_long => self.constant_long_instruction("CONSTANT_LONG", offset),
-            else => blk: {
-                print("{s: <16} Error: invalid opcode, got {}\n", .{ "?", instruction });
-                break :blk offset + 1;
-            },
-        };
-    }
+fn constantLongInstruction(chunk: *const Chunk, name: []const u8, offset: usize) usize {
+    const left: u24 = chunk.readByte(offset + 1);
+    const middle: u24 = chunk.readByte(offset + 2);
+    const right = chunk.readByte(offset + 3);
+    const index: usize = (left << 16) | (middle << 8) | right;
 
-    fn constant_instruction(self: *Self, name: []const u8, offset: usize) usize {
-        if (self.extract_operand(name, offset + 1)) |constant| {
-            print("{s: <16} {:0>4} '", .{ name, constant });
-            Self.plain_value(self.extract_constant(constant));
-            print("'\n", .{});
-        }
+    print("{s: <16} {:0>4} '", .{ name, index });
+    printPlainValue(extractConstant(chunk, index));
+    print("'\n", .{});
 
-        return offset + 2;
-    }
+    return offset + 4;
+}
 
-    fn constant_long_instruction(self: *Self, name: []const u8, offset: usize) usize {
-        var operands: [3]u24 = .{ 0, 0, 0 };
-        var is_error = false;
+fn simpleInstruction(name: []const u8, offset: usize) usize {
+    print("{s}\n", .{name});
+    return offset + 1;
+}
 
-        for (0..3) |i| {
-            if (self.extract_operand(name, offset + i + 1)) |byte| {
-                operands[i] = byte;
-                continue;
-            }
+fn extractConstant(chunk: *const Chunk, index: usize) Value {
+    return chunk.constants.data[index];
+}
 
-            is_error = true;
-        }
-
-        if (!is_error) {
-            const index: usize = (operands[0] << 16) | (operands[1] << 8) | operands[2];
-
-            print("{s: <16} {:0>4} '", .{ name, index });
-            Self.plain_value(self.extract_constant(index));
-            print("'\n", .{});
-        }
-
-        return offset + 4;
-    }
-
-    fn simple_instruction(name: []const u8, offset: usize) usize {
-        print("{s}\n", .{name});
-        return offset + 1;
-    }
-
-    fn plain_value(val: Value) void {
-        print("{d}", .{val});
-    }
-
-    fn extract_operand(self: *Self, name: []const u8, offset: usize) ?u8 {
-        const instruction = self.chunk.code.data[offset];
-
-        return switch (instruction) {
-            OpCode.operand => |val| val,
-            else => {
-                print("{s: <16} Error: no operand at offset {:0>4}, got {}\n", .{ name, offset, instruction });
-                return null;
-            },
-        };
-    }
-
-    fn extract_constant(self: *Self, index: usize) Value {
-        return self.chunk.constants.data[index];
-    }
-};
+pub fn printPlainValue(value: Value) void {
+    print("{d}", .{value});
+}

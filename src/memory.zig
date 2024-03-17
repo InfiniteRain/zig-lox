@@ -22,6 +22,6 @@ pub fn realloc(allocator: Allocator, pointer: anytype, new_size: usize) ![]@type
     return try reallocate(PointerType, allocator, pointer, new_size);
 }
 
-pub fn grow_capacity(capacity: usize) usize {
+pub fn growCapacity(capacity: usize) usize {
     return if (capacity <= 0) 8 else capacity * 2;
 }

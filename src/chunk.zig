@@ -4,34 +4,44 @@ const expect = testing.expect;
 const expectError = testing.expectError;
 const mem = std.mem;
 const Allocator = mem.Allocator;
-const memory = @import("memory.zig");
-const grow_capacity = memory.grow_capacity;
-const alloc = memory.alloc;
-const realloc = memory.realloc;
-const free = memory.free;
-const dynamic_array = @import("dynamic_array.zig");
-const DynamicArray = dynamic_array.DynamicArray;
-const value = @import("value.zig");
-const Value = value.Value;
-const rle_array = @import("rle_array.zig");
-const RleArray = rle_array.RleArray;
+const memory_package = @import("memory.zig");
+const growCapacity = memory_package.growCapacity;
+const alloc = memory_package.alloc;
+const realloc = memory_package.realloc;
+const free = memory_package.free;
+const dynamic_array_package = @import("dynamic_array.zig");
+const DynamicArray = dynamic_array_package.DynamicArray;
+const value_package = @import("value.zig");
+const Value = value_package.Value;
+const rle_array_package = @import("rle_array.zig");
+const RleArray = rle_array_package.RleArray;
+const debug_package = @import("debug.zig");
+const is_debug_mode = debug_package.is_debug_mode;
+const assertInBounds = debug_package.assertInBounds;
 
-pub const OpCode = union(enum(u8)) {
-    operand: u8,
+const OpCodeError = error{NotOperand};
+
+pub const OpCode = enum(u8) {
     ret,
     constant,
     constant_long,
+    negate,
+    add,
+    subtract,
+    multiply,
+    divide,
+    _,
 };
 
 pub const Chunk = struct {
     const Self = @This();
 
-    code: DynamicArray(OpCode),
+    code: DynamicArray(u8),
     constants: DynamicArray(Value),
     lines: RleArray(u64),
 
     pub fn init(allocator: Allocator) !Self {
-        const code = try DynamicArray(OpCode).init(allocator);
+        const code = try DynamicArray(u8).init(allocator);
         errdefer code.deinit();
 
         const constants = try DynamicArray(Value).init(allocator);
@@ -52,39 +62,55 @@ pub const Chunk = struct {
         self.lines.deinit();
     }
 
-    pub fn write_opcode(self: *Self, opcode: OpCode, line: u64) !void {
-        try self.code.push(opcode);
+    pub fn writeOpCode(self: *Self, op_code: OpCode, line: u64) !void {
+        try self.writeByte(@intFromEnum(op_code), line);
+    }
+
+    pub fn writeByte(self: *Self, byte: u8, line: u64) !void {
+        try self.code.push(byte);
         try self.lines.push(line);
     }
 
-    pub fn write_constant(self: *Self, val: Value, line: u64) !void {
-        const index = try self.add_constant(val);
+    pub fn writeConstant(self: *Self, value: Value, line: u64) !void {
+        const index = try self.addConstant(value);
 
         if (index < 256) {
-            try self.write_opcode(OpCode.constant, line);
-            try self.write_opcode(OpCode{ .operand = @intCast(index) }, line);
+            try self.writeOpCode(OpCode.constant, line);
+            try self.writeByte(@intCast(index), line);
         } else {
-            try self.write_opcode(OpCode.constant_long, line);
-            try self.write_opcode(OpCode{ .operand = @intCast(0xFF & (@as(u24, @intCast(index & 0xFFFFFF)) >> 16)) }, line);
-            try self.write_opcode(OpCode{ .operand = @intCast(0xFF & (@as(u24, @intCast(index & 0xFFFFFF)) >> 8)) }, line);
-            try self.write_opcode(OpCode{ .operand = @intCast(0xFF & (@as(u24, @intCast(index & 0xFFFFFF)))) }, line);
+            try self.writeOpCode(OpCode.constant_long, line);
+            try self.writeByte(@intCast(0xFF & (@as(u24, @intCast(index & 0xFFFFFF)) >> 16)), line);
+            try self.writeByte(@intCast(0xFF & (@as(u24, @intCast(index & 0xFFFFFF)) >> 8)), line);
+            try self.writeByte(@intCast(0xFF & (@as(u24, @intCast(index & 0xFFFFFF)))), line);
         }
     }
 
-    pub fn read_opcode(self: *const Self, index: usize) OpCode {
+    pub fn readByte(self: *const Self, index: usize) u8 {
+        if (is_debug_mode) {
+            assertInBounds("byte", index, self.code.count);
+        }
+
         return self.code.data[index];
     }
 
-    pub fn read_line(self: *const Self, index: usize) !u64 {
+    pub fn getLine(self: *const Self, index: usize) !u64 {
+        if (comptime is_debug_mode) {
+            assertInBounds("line", index, self.lines.count);
+        }
+
         return try self.lines.get(index);
     }
 
-    pub fn add_constant(self: *Self, val: Value) !usize {
-        try self.constants.push(val);
+    pub fn addConstant(self: *Self, value: Value) !usize {
+        try self.constants.push(value);
         return self.constants.count - 1;
     }
 
-    pub fn get_constant(self: *Self, index: usize) Value {
+    pub fn getConstant(self: *const Self, index: usize) Value {
+        if (comptime is_debug_mode) {
+            assertInBounds("constant", index, self.constants.count);
+        }
+
         return self.constants.data[index];
     }
 };
@@ -116,7 +142,7 @@ test "third allocation in init fails" {
     try expectError(error.OutOfMemory, result);
 }
 
-test "write_opcode adds opcode and line as expected" {
+test "writeOpcode adds opcode and line as expected" {
     const allocator = testing.allocator;
 
     var chunk = try Chunk.init(allocator);
@@ -125,57 +151,57 @@ test "write_opcode adds opcode and line as expected" {
     try expect(chunk.code.count == 0);
     try expect(chunk.lines.count == 0);
 
-    try chunk.write_opcode(OpCode.ret, 10);
+    try chunk.writeOpCode(OpCode.ret, 10);
 
     try expect(chunk.code.count == 1);
-    try expect(chunk.code.data[0] == OpCode.ret);
+    try expect(chunk.code.data[0] == @intFromEnum(OpCode.ret));
     try expect(chunk.lines.count == 1);
     try expect(try chunk.lines.get(0) == 10);
 
-    try chunk.write_opcode(OpCode.constant, 20);
+    try chunk.writeOpCode(OpCode.constant, 20);
 
     try expect(chunk.code.count == 2);
-    try expect(chunk.code.data[1] == OpCode.constant);
+    try expect(chunk.code.data[1] == @intFromEnum(OpCode.constant));
     try expect(chunk.lines.count == 2);
     try expect(try chunk.lines.get(1) == 20);
 }
 
-test "read_opcode works as expected" {
+test "readByte works as expected" {
     const allocator = testing.allocator;
 
     var chunk = try Chunk.init(allocator);
     defer chunk.deinit();
 
-    try chunk.write_opcode(OpCode.ret, 0);
-    try chunk.write_opcode(OpCode.constant, 0);
+    try chunk.writeOpCode(OpCode.ret, 0);
+    try chunk.writeOpCode(OpCode.constant, 0);
 
-    try expect(chunk.read_opcode(0) == OpCode.ret);
-    try expect(chunk.read_opcode(1) == OpCode.constant);
+    try expect(chunk.readByte(0) == @intFromEnum(OpCode.ret));
+    try expect(chunk.readByte(1) == @intFromEnum(OpCode.constant));
 }
 
-test "read_line works as expected" {
+test "readLine works as expected" {
     const allocator = testing.allocator;
 
     var chunk = try Chunk.init(allocator);
     defer chunk.deinit();
 
-    try chunk.write_opcode(OpCode.ret, 10);
-    try chunk.write_opcode(OpCode.constant, 20);
+    try chunk.writeOpCode(OpCode.ret, 10);
+    try chunk.writeOpCode(OpCode.constant, 20);
 
-    try expect(try chunk.read_line(0) == 10);
-    try expect(try chunk.read_line(1) == 20);
+    try expect(try chunk.getLine(0) == 10);
+    try expect(try chunk.getLine(1) == 20);
 }
 
-test "write_constant and read_constant work as expected" {
+test "writeConstant and read_constant work as expected" {
     const allocator = testing.allocator;
 
     var chunk = try Chunk.init(allocator);
     defer chunk.deinit();
 
     for (0..300) |i| {
-        const val: f64 = @floatFromInt(i);
-        const index = try chunk.add_constant(val);
+        const value: f64 = @floatFromInt(i);
+        const index = try chunk.addConstant(value);
 
-        try expect(@fabs(chunk.get_constant(index) - val) < 1e-9);
+        try expect(@fabs(chunk.getConstant(index) - value) < 1e-9);
     }
 }

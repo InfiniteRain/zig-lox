@@ -1,7 +1,7 @@
 const std = @import("std");
 const debug = std.debug;
-const adt = @import("dynamic_array.zig");
-const DynamicArray = adt.DynamicArray;
+const dynamic_array_package = @import("dynamic_array.zig");
+const DynamicArray = dynamic_array_package.DynamicArray;
 
 pub const Value = f64;
 

@@ -4,11 +4,11 @@ const testing = std.testing;
 const expect = testing.expect;
 const expectError = testing.expectError;
 const Allocator = mem.Allocator;
-const memory = @import("memory.zig");
-const alloc = memory.alloc;
-const free = memory.free;
-const realloc = memory.realloc;
-const grow_capacity = memory.grow_capacity;
+const memory_package = @import("memory.zig");
+const alloc = memory_package.alloc;
+const free = memory_package.free;
+const realloc = memory_package.realloc;
+const growCapacity = memory_package.growCapacity;
 
 const RleError = error{IndexOutOfBounds};
 
@@ -23,7 +23,7 @@ pub fn RleArray(comptime T: type) type {
         count: usize,
 
         pub fn init(allocator: Allocator) !Self {
-            return Self{
+            return .{
                 .allocator = allocator,
                 .entries_count = 0,
                 .entries = try alloc(Entry, allocator, 8),
@@ -71,7 +71,7 @@ pub fn RleArray(comptime T: type) type {
             const capacity = self.entries.len;
 
             if (capacity < self.entries_count + 1) {
-                const new_capacity = grow_capacity(capacity);
+                const new_capacity = growCapacity(capacity);
                 self.entries = try realloc(self.allocator, self.entries, new_capacity);
             }
 

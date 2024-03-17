@@ -1,23 +1,32 @@
 const std = @import("std");
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
-const chunk = @import("chunk.zig");
-const OpCode = chunk.OpCode;
-const Chunk = chunk.Chunk;
-const debug = @import("debug.zig");
-const Disassmbler = debug.Disassembler;
+const chunk_package = @import("chunk.zig");
+const OpCode = chunk_package.OpCode;
+const Chunk = chunk_package.Chunk;
+const debug_package = @import("debug.zig");
+const disassembleChunk = debug_package.disassembleChunk;
+const vm_package = @import("vm.zig");
+const VM = vm_package.VM;
 
 pub fn main() !void {
     var gpa = GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
-    var my_chunk = try Chunk.init(allocator);
-    defer my_chunk.deinit();
+    var vm = try VM.init(allocator);
+    defer vm.deinit();
 
-    for (0..257) |i| {
-        try my_chunk.write_constant(10, @intCast(i));
-    }
-    try my_chunk.write_opcode(OpCode.ret, 257);
+    var chunk = try Chunk.init(allocator);
+    defer chunk.deinit();
 
-    var disassmbler = Disassmbler{ .chunk = &my_chunk };
-    try disassmbler.disassemble_chunk("test chunk");
+    try chunk.writeConstant(1.2, 123);
+    try chunk.writeConstant(3.4, 123);
+    try chunk.writeOpCode(OpCode.add, 123);
+
+    try chunk.writeConstant(5.6, 123);
+    try chunk.writeOpCode(OpCode.divide, 123);
+
+    try chunk.writeOpCode(OpCode.negate, 1);
+    try chunk.writeOpCode(OpCode.ret, 1);
+
+    _ = vm.interpret(&chunk);
 }
