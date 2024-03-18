@@ -12,6 +12,8 @@ const printPlainValue = debug_package.printPlainValue;
 const disassembleInstruction = debug_package.disassembleInstruction;
 const is_debug_mode = debug_package.is_debug_mode;
 const assertInBounds = debug_package.assertInBounds;
+const compiler_package = @import("compiler.zig");
+const Compiler = compiler_package.Compiler;
 
 pub const InterpretResult = enum {
     ok,
@@ -70,15 +72,15 @@ pub const VM = struct {
     chunk: *const Chunk,
     ip: [*]u8,
     stack: Stack,
+    compiler: Compiler,
 
     pub fn init(allocator: Allocator) !Self {
-        var stack = try Stack.init(allocator);
-
         var vm: Self = .{
             .allocator = allocator,
             .chunk = undefined,
             .ip = undefined,
-            .stack = stack,
+            .stack = try Stack.init(allocator),
+            .compiler = try Compiler.init(allocator),
         };
 
         return vm;
@@ -86,13 +88,12 @@ pub const VM = struct {
 
     pub fn deinit(self: *Self) void {
         self.stack.deinit();
+        self.compiler.deinit();
     }
 
-    pub fn interpret(self: *Self, chunk: *const Chunk) InterpretResult {
-        self.chunk = chunk;
-        self.ip = @ptrCast(chunk.code.data);
-
-        return self.run();
+    pub fn interpret(self: *Self, source: []const u8) InterpretResult {
+        self.compiler.compile(source);
+        return .ok;
     }
 
     fn run(self: *Self) InterpretResult {

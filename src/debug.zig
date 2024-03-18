@@ -1,6 +1,5 @@
 const std = @import("std");
 const debug = std.debug;
-const print = debug.print;
 const chunk_package = @import("chunk.zig");
 const OpCode = chunk_package.OpCode;
 const Chunk = chunk_package.Chunk;
@@ -18,7 +17,7 @@ pub fn assertInBounds(name: []const u8, index: usize, count: usize) void {
 }
 
 pub fn disassembleChunk(chunk: *const Chunk, name: []const u8) !void {
-    print("== {s} ==\n", .{name});
+    debug.print("== {s} ==\n", .{name});
 
     var offset: usize = 0;
 
@@ -28,14 +27,14 @@ pub fn disassembleChunk(chunk: *const Chunk, name: []const u8) !void {
 }
 
 pub fn disassembleInstruction(chunk: *const Chunk, offset: usize) !usize {
-    print("{:0>4} ", .{offset});
+    debug.print("{:0>4} ", .{offset});
 
     const line = try chunk.getLine(offset);
 
     if (offset > 0 and line == try chunk.getLine(offset - 1)) {
-        print("    | ", .{});
+        debug.print("    | ", .{});
     } else {
-        print("{:0>4}| ", .{line});
+        debug.print("{:0>4}| ", .{line});
     }
 
     const instruction = chunk.code.data[offset];
@@ -50,7 +49,7 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize) !usize {
         OpCode.multiply => simpleInstruction("MULTIPLY", offset),
         OpCode.divide => simpleInstruction("DIVIDE", offset),
         _ => blk: {
-            print("{s: <16} Error: invalid opcode, got {}\n", .{ "?", instruction });
+            debug.print("{s: <16} Error: invalid opcode, got {}\n", .{ "?", instruction });
             break :blk offset + 1;
         },
     };
@@ -58,9 +57,9 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize) !usize {
 
 fn constantInstruction(chunk: *const Chunk, name: []const u8, offset: usize) usize {
     const index = chunk.readByte(offset + 1);
-    print("{s: <16} {:0>4} '", .{ name, index });
+    debug.print("{s: <16} {:0>4} '", .{ name, index });
     printPlainValue(extractConstant(chunk, index));
-    print("'\n", .{});
+    debug.print("'\n", .{});
 
     return offset + 2;
 }
@@ -71,15 +70,15 @@ fn constantLongInstruction(chunk: *const Chunk, name: []const u8, offset: usize)
     const right = chunk.readByte(offset + 3);
     const index: usize = (left << 16) | (middle << 8) | right;
 
-    print("{s: <16} {:0>4} '", .{ name, index });
+    debug.print("{s: <16} {:0>4} '", .{ name, index });
     printPlainValue(extractConstant(chunk, index));
-    print("'\n", .{});
+    debug.print("'\n", .{});
 
     return offset + 4;
 }
 
 fn simpleInstruction(name: []const u8, offset: usize) usize {
-    print("{s}\n", .{name});
+    debug.print("{s}\n", .{name});
     return offset + 1;
 }
 
@@ -88,5 +87,5 @@ fn extractConstant(chunk: *const Chunk, index: usize) Value {
 }
 
 pub fn printPlainValue(value: Value) void {
-    print("{d}", .{value});
+    debug.print("{d}", .{value});
 }
