@@ -1,6 +1,8 @@
 const std = @import("std");
-const mem = std.mem;
-const Allocator = mem.Allocator;
+const Writer = std.fs.File.Writer;
+const Allocator = std.mem.Allocator;
+const AllocatorError = Allocator.Error;
+const assert = std.debug.assert;
 const chunk_package = @import("chunk.zig");
 const Chunk = chunk_package.Chunk;
 const OpCode = chunk_package.OpCode;
@@ -11,14 +13,15 @@ const debug_trace_execution = debug_package.debug_trace_execution;
 const printPlainValue = debug_package.printPlainValue;
 const disassembleInstruction = debug_package.disassembleInstruction;
 const is_debug_mode = debug_package.is_debug_mode;
-const assertInBounds = debug_package.assertInBounds;
 const compiler_package = @import("compiler.zig");
 const Compiler = compiler_package.Compiler;
+const CompilerError = compiler_package.CompilerError;
+const io_handler_package = @import("io_handler.zig");
+const IoHandler = io_handler_package.IoHandler;
 
-pub const InterpretResult = enum {
-    ok,
-    compile_error,
-    runtime_error,
+pub const InterpretError = error{
+    CompileError,
+    RuntimeError,
 };
 
 pub const BinaryOperation = enum {
@@ -73,14 +76,16 @@ pub const VM = struct {
     ip: [*]u8,
     stack: Stack,
     compiler: Compiler,
+    io: *IoHandler,
 
-    pub fn init(allocator: Allocator) !Self {
+    pub fn init(allocator: Allocator, io: *IoHandler) !Self {
         var vm: Self = .{
             .allocator = allocator,
             .chunk = undefined,
             .ip = undefined,
             .stack = try Stack.init(allocator),
-            .compiler = try Compiler.init(allocator),
+            .compiler = try Compiler.init(allocator, io),
+            .io = io,
         };
 
         return vm;
@@ -91,28 +96,37 @@ pub const VM = struct {
         self.compiler.deinit();
     }
 
-    pub fn interpret(self: *Self, source: []const u8) InterpretResult {
-        self.compiler.compile(source);
-        return .ok;
+    pub fn interpret(self: *Self, source: []const u8) !void {
+        var chunk = try Chunk.init(self.allocator);
+        defer chunk.deinit();
+
+        if (!try self.compiler.compile(source, &chunk)) {
+            return error.CompileError;
+        }
+
+        self.chunk = &chunk;
+        self.ip = @ptrCast(chunk.code.data);
+
+        try self.run();
     }
 
-    fn run(self: *Self) InterpretResult {
+    fn run(self: *Self) InterpretError!void {
         while (true) {
             if (comptime debug_trace_execution) {
-                std.debug.print("           ", .{});
+                self.io.print("           ", .{});
 
                 var slot: [*]Value = @ptrCast(&self.stack.stack[0]);
 
                 while (@intFromPtr(slot) < @intFromPtr(self.stack.top)) {
-                    std.debug.print("[ ", .{});
-                    printPlainValue(slot[0]);
-                    std.debug.print(" ]", .{});
+                    self.io.print("[ ", .{});
+                    printPlainValue(slot[0], self.io);
+                    self.io.print(" ]", .{});
                     slot += 1;
                 }
 
-                std.debug.print("\n", .{});
+                self.io.print("\n", .{});
 
-                _ = disassembleInstruction(self.chunk, self.getOffset()) catch {};
+                _ = disassembleInstruction(self.chunk, self.getOffset(), self.io) catch {};
             }
 
             const instruction = self.readOpCode();
@@ -132,15 +146,13 @@ pub const VM = struct {
                 .multiply => self.binaryOperation(.multiply),
                 .divide => self.binaryOperation(.divide),
                 .ret => {
-                    printPlainValue(self.stack.pop());
-                    std.debug.print("\n", .{});
-                    return .ok;
+                    printPlainValue(self.stack.pop(), self.io);
+                    self.io.print("\n", .{});
+                    return;
                 },
-                _ => return .compile_error,
+                _ => return error.CompileError,
             }
         }
-
-        return .ok;
     }
 
     fn binaryOperation(self: *Self, operation: BinaryOperation) void {
@@ -173,9 +185,7 @@ pub const VM = struct {
     }
 
     fn readByte(self: *Self) u8 {
-        if (comptime is_debug_mode) {
-            assertInBounds("byte", self.getOffset(), self.chunk.code.count);
-        }
+        assert(self.getOffset() < self.chunk.code.count);
 
         const byte = self.ip[0];
         self.ip += 1;
@@ -183,7 +193,6 @@ pub const VM = struct {
     }
 
     fn getOffset(self: *Self) usize {
-        // const offset = @intFromPtr(self.ip) - @intFromPtr(@as([*]u8, @ptrCast(self.chunk.code.data)));
         return @intFromPtr(self.ip) - @intFromPtr(&self.chunk.code.data[0]);
     }
 };

@@ -1,5 +1,6 @@
 const std = @import("std");
 const testing = std.testing;
+const assert = std.debug.assert;
 const expect = testing.expect;
 const expectError = testing.expectError;
 const mem = std.mem;
@@ -17,7 +18,6 @@ const rle_array_package = @import("rle_array.zig");
 const RleArray = rle_array_package.RleArray;
 const debug_package = @import("debug.zig");
 const is_debug_mode = debug_package.is_debug_mode;
-const assertInBounds = debug_package.assertInBounds;
 
 const OpCodeError = error{NotOperand};
 
@@ -86,30 +86,25 @@ pub const Chunk = struct {
     }
 
     pub fn readByte(self: *const Self, index: usize) u8 {
-        if (is_debug_mode) {
-            assertInBounds("byte", index, self.code.count);
-        }
+        assert(index < self.code.count);
 
         return self.code.data[index];
     }
 
     pub fn getLine(self: *const Self, index: usize) !u64 {
-        if (comptime is_debug_mode) {
-            assertInBounds("line", index, self.lines.count);
-        }
+        assert(index < self.lines.count);
 
         return try self.lines.get(index);
     }
 
     pub fn addConstant(self: *Self, value: Value) !usize {
         try self.constants.push(value);
+
         return self.constants.count - 1;
     }
 
     pub fn getConstant(self: *const Self, index: usize) Value {
-        if (comptime is_debug_mode) {
-            assertInBounds("constant", index, self.constants.count);
-        }
+        assert(index < self.constants.count);
 
         return self.constants.data[index];
     }

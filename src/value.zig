@@ -1,5 +1,4 @@
 const std = @import("std");
-const debug = std.debug;
 const dynamic_array_package = @import("dynamic_array.zig");
 const DynamicArray = dynamic_array_package.DynamicArray;
 

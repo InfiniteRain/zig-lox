@@ -1,5 +1,7 @@
 const std = @import("std");
 const mem = std.mem;
+const io_handler_package = @import("io_handler.zig");
+const IoHandler = io_handler_package.IoHandler;
 
 pub const TokenType = enum {
     left_paren,
@@ -61,13 +63,15 @@ pub const Scanner = struct {
     start: usize,
     current: usize,
     line: u64,
+    io: *IoHandler,
 
-    pub fn init(source: []const u8) Self {
+    pub fn init(source: []const u8, io: *IoHandler) Self {
         return .{
             .source = source,
             .start = 0,
             .current = 0,
             .line = 1,
+            .io = io,
         };
     }
 
@@ -256,7 +260,7 @@ pub const Scanner = struct {
                         'h' => self.checkKeyword(2, "is", .this),
                         'r' => self.checkKeyword(2, "ue", .true),
                         else => {
-                            std.debug.print("hit {c} {any}\n", .{ self.source[self.start + 1], self.current - self.start > 1 });
+                            self.io.print("hit {c} {any}\n", .{ self.source[self.start + 1], self.current - self.start > 1 });
                             return .identifier;
                         },
                     }
