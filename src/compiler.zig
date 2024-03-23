@@ -13,6 +13,9 @@ const io_handler_package = @import("io_handler.zig");
 const IoHandler = io_handler_package.IoHandler;
 const value_package = @import("value.zig");
 const Value = value_package.Value;
+const exe_options = @import("exe_options");
+const debug_package = @import("debug.zig");
+const disassembleChunk = debug_package.disassembleChunk;
 
 const Precedence = enum(u8) {
     none,
@@ -177,6 +180,10 @@ pub const Compiler = struct {
 
     fn endCompiler(self: *Self) void {
         self.emitReturn();
+
+        if (comptime exe_options.print_code) {
+            disassembleChunk(self.currentChunk(), "code", self.io) catch unreachable;
+        }
     }
 
     fn binary(self: *Self) void {

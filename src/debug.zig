@@ -18,7 +18,7 @@ pub fn disassembleChunk(chunk: *const Chunk, name: []const u8, io: *IoHandler) !
     var offset: usize = 0;
 
     while (offset < chunk.code.count) {
-        offset = try disassembleInstruction(chunk, offset);
+        offset = try disassembleInstruction(chunk, offset, io);
     }
 }
 

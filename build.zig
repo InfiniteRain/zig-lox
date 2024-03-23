@@ -4,6 +4,13 @@ const std = @import("std");
 // declaratively construct a build graph that will be executed by an external
 // runner.
 pub fn build(b: *std.Build) void {
+    const print_code_option = b.option(bool, "print-code", "Print code chunk after execution.") orelse false;
+    const trace_execution_option = b.option(bool, "trace-execution", "Trace code execution.") orelse false;
+
+    const exe_options = b.addOptions();
+    exe_options.addOption(bool, "print_code", print_code_option);
+    exe_options.addOption(bool, "trace_execution", trace_execution_option);
+
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
@@ -23,6 +30,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+
+    exe.addOptions("exe_options", exe_options);
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default

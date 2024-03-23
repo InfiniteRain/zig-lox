@@ -9,7 +9,6 @@ const OpCode = chunk_package.OpCode;
 const value_package = @import("value.zig");
 const Value = value_package.Value;
 const debug_package = @import("debug.zig");
-const debug_trace_execution = debug_package.debug_trace_execution;
 const printPlainValue = debug_package.printPlainValue;
 const disassembleInstruction = debug_package.disassembleInstruction;
 const is_debug_mode = debug_package.is_debug_mode;
@@ -18,6 +17,8 @@ const Compiler = compiler_package.Compiler;
 const CompilerError = compiler_package.CompilerError;
 const io_handler_package = @import("io_handler.zig");
 const IoHandler = io_handler_package.IoHandler;
+const exe_options = @import("exe_options");
+const trace_execution = exe_options.trace_execution;
 
 pub const InterpretError = error{
     CompileError,
@@ -112,7 +113,7 @@ pub const VM = struct {
 
     fn run(self: *Self) InterpretError!void {
         while (true) {
-            if (comptime debug_trace_execution) {
+            if (comptime trace_execution) {
                 self.io.print("           ", .{});
 
                 var slot: [*]Value = @ptrCast(&self.stack.stack[0]);

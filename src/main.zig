@@ -71,7 +71,6 @@ fn readFileAlloc(allocator: Allocator, file_path: []u8, io: *IoHandler) ![]u8 {
 }
 
 fn repl(vm: *VM, io: *IoHandler) !void {
-    _ = vm;
     var buf: [1024]u8 = undefined;
     var fbs = fixedBufferStream(&buf);
 
@@ -89,6 +88,6 @@ fn repl(vm: *VM, io: *IoHandler) !void {
             break;
         }
 
-        // _ = try vm.interpret(line);
+        _ = try vm.interpret(line);
     }
 }
