@@ -18,6 +18,11 @@ const IoHandler = io_handler_package.IoHandler;
 const exe_options = @import("exe_options");
 const trace_execution = exe_options.trace_execution;
 const activeTag = std.meta.activeTag;
+const memory_package = @import("memory.zig");
+const alloc = memory_package.alloc;
+const freeObjects = memory_package.freeObjects;
+const object_package = @import("object.zig");
+const Obj = object_package.Obj;
 
 pub const InterpretError = error{
     CompileError,
@@ -25,7 +30,6 @@ pub const InterpretError = error{
 };
 
 pub const BinaryOperation = enum {
-    add,
     subtract,
     multiply,
     divide,
@@ -81,8 +85,8 @@ pub const VM = struct {
     chunk: *const Chunk,
     ip: [*]u8,
     stack: Stack,
-    compiler: Compiler,
     io: *IoHandler,
+    objects: ?*Obj,
 
     pub fn init(allocator: Allocator, io: *IoHandler) !Self {
         var vm: Self = .{
@@ -90,8 +94,8 @@ pub const VM = struct {
             .chunk = undefined,
             .ip = undefined,
             .stack = try Stack.init(allocator),
-            .compiler = try Compiler.init(allocator, io),
             .io = io,
+            .objects = null,
         };
 
         return vm;
@@ -99,14 +103,14 @@ pub const VM = struct {
 
     pub fn deinit(self: *Self) void {
         self.stack.deinit();
-        self.compiler.deinit();
+        Obj.freeList(self.allocator, self.objects);
     }
 
-    pub fn interpret(self: *Self, source: []const u8) !void {
+    pub fn interpret(self: *Self, source: []const u8, compiler: *Compiler) !void {
         var chunk = try Chunk.init(self.allocator);
         defer chunk.deinit();
 
-        if (!try self.compiler.compile(source, &chunk)) {
+        if (!try compiler.compile(source, &chunk)) {
             return error.CompileError;
         }
 
@@ -116,7 +120,7 @@ pub const VM = struct {
         try self.run();
     }
 
-    fn run(self: *Self) InterpretError!void {
+    fn run(self: *Self) !void {
         while (true) {
             if (comptime trace_execution) {
                 self.io.print("           ", .{});
@@ -154,7 +158,22 @@ pub const VM = struct {
 
                     self.stack.push(Value{ .number = -self.stack.pop().number });
                 },
-                .add => try self.binaryOperation(.add),
+                .add => {
+                    const r = self.stack.peek(0);
+                    const l = self.stack.peek(1);
+
+                    if (l.isObjType(.string) and r.isObjType(.string)) {
+                        try self.concatenate();
+                    } else if (l == .number and r == .number) {
+                        const b = self.stack.pop().number;
+                        const a = self.stack.pop().number;
+
+                        self.stack.push(.{ .number = a + b });
+                    } else {
+                        self.runtimeError("Operands must be two numbers or two strings.", .{});
+                        return InterpretError.RuntimeError;
+                    }
+                },
                 .nil => self.stack.push(.nil),
                 .true => self.stack.push(Value{ .bool = true }),
                 .false => self.stack.push(Value{ .bool = false }),
@@ -180,7 +199,20 @@ pub const VM = struct {
         }
     }
 
-    fn binaryOperation(self: *Self, operation: BinaryOperation) InterpretError!void {
+    fn concatenate(self: *Self) !void {
+        const b = self.stack.pop().obj.as(.string);
+        const a = self.stack.pop().obj.as(.string);
+
+        const new_length = a.chars.len + b.chars.len;
+        const new_chars = try alloc(u8, self.allocator, new_length);
+        @memcpy(new_chars[0..a.chars.len], a.chars);
+        @memcpy(new_chars[a.chars.len..(a.chars.len + b.chars.len)], b.chars);
+
+        const result = try Obj.String.fromHeapBufAlloc(self.allocator, new_chars, self);
+        self.stack.push(.{ .obj = &result.obj });
+    }
+
+    fn binaryOperation(self: *Self, operation: BinaryOperation) !void {
         if (self.stack.peek(0) != .number or self.stack.peek(1) != .number) {
             self.runtimeError("Operands must be numbers.", .{});
             return error.RuntimeError;
@@ -191,7 +223,6 @@ pub const VM = struct {
 
         self.stack.push(
             switch (operation) {
-                .add => Value{ .number = a + b },
                 .subtract => Value{ .number = a - b },
                 .multiply => Value{ .number = a * b },
                 .divide => Value{ .number = a / b },
@@ -239,3 +270,18 @@ pub const VM = struct {
         self.stack.reset();
     }
 };
+
+test {
+    const allocator = std.testing.allocator;
+
+    var io = try IoHandler.init(allocator);
+    defer io.deinit();
+
+    var vm = try VM.init(allocator, &io);
+    defer vm.deinit();
+
+    var compiler = try Compiler.init(allocator, &vm, &io);
+    defer compiler.deinit();
+
+    _ = try vm.interpret("\"st\" + \"ri\" + \"ng\"", &compiler);
+}

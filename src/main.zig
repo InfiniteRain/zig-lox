@@ -32,9 +32,12 @@ pub fn main() !void {
     var vm = try VM.init(allocator, &io);
     defer vm.deinit();
 
+    var compiler = try Compiler.init(allocator, &vm, &io);
+    defer compiler.deinit();
+
     switch (args.len) {
-        1 => try repl(&vm, &io),
-        2 => try runFile(allocator, args[1], &vm, &io),
+        1 => try repl(&compiler, &vm, &io),
+        2 => try runFile(allocator, args[1], &compiler, &vm, &io),
         else => {
             io.err("Usage: zig-lox [path]\n", .{});
             os.exit(64);
@@ -42,11 +45,11 @@ pub fn main() !void {
     }
 }
 
-fn runFile(allocator: Allocator, file_path: []u8, vm: *VM, io: *IoHandler) !void {
+fn runFile(allocator: Allocator, file_path: []u8, compiler: *Compiler, vm: *VM, io: *IoHandler) !void {
     const source = try readFileAlloc(allocator, file_path, io);
     defer free(allocator, source);
 
-    vm.interpret(source) catch |err| switch (err) {
+    vm.interpret(source, compiler) catch |err| switch (err) {
         error.CompileError => os.exit(65),
         error.RuntimeError => os.exit(70),
         else => return err,
@@ -70,7 +73,7 @@ fn readFileAlloc(allocator: Allocator, file_path: []u8, io: *IoHandler) ![]u8 {
     };
 }
 
-fn repl(vm: *VM, io: *IoHandler) !void {
+fn repl(compiler: *Compiler, vm: *VM, io: *IoHandler) !void {
     var buf: [1024]u8 = undefined;
     var fbs = fixedBufferStream(&buf);
 
@@ -88,6 +91,10 @@ fn repl(vm: *VM, io: *IoHandler) !void {
             break;
         }
 
-        _ = try vm.interpret(line);
+        _ = try vm.interpret(line, compiler);
     }
+}
+
+test {
+    _ = @import("vm.zig");
 }

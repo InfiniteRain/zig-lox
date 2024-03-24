@@ -199,8 +199,8 @@ test "writeConstant and read_constant work as expected" {
 
     for (0..300) |i| {
         const value: f64 = @floatFromInt(i);
-        const index = try chunk.addConstant(value);
+        const index = try chunk.addConstant(.{ .number = value });
 
-        try expect(@fabs(chunk.getConstant(index) - value) < 1e-9);
+        try expect(@fabs(chunk.getConstant(index).number - value) < 1e-9);
     }
 }

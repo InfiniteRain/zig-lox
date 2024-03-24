@@ -16,6 +16,10 @@ const Value = value_package.Value;
 const exe_options = @import("exe_options");
 const debug_package = @import("debug.zig");
 const disassembleChunk = debug_package.disassembleChunk;
+const object_package = @import("object.zig");
+const Obj = object_package.Obj;
+const vm_package = @import("vm.zig");
+const VM = vm_package.VM;
 
 const Precedence = enum(u8) {
     none,
@@ -37,11 +41,9 @@ const ParseRule = struct {
     precedence: Precedence = .none,
 };
 
-const ParseFn = *const fn (*Compiler) void;
+const CompilerError = error{OutOfMemory};
 
-pub const CompilerError = error{
-    CompilationFailed,
-};
+const ParseFn = *const fn (*Compiler) CompilerError!void;
 
 pub const Compiler = struct {
     const Self = @This();
@@ -67,7 +69,7 @@ pub const Compiler = struct {
         array.set(.less, .{ .infix = Self.binary, .precedence = .comparison });
         array.set(.less_equal, .{ .infix = Self.binary, .precedence = .comparison });
         array.set(.identifier, .{});
-        array.set(.string, .{});
+        array.set(.string, .{ .prefix = Self.string });
         array.set(.number, .{ .prefix = Self.number });
         array.set(._and, .{});
         array.set(.class, .{});
@@ -90,7 +92,9 @@ pub const Compiler = struct {
         break :blk array;
     };
 
+    allocator: Allocator,
     scanner: Scanner,
+    vm: *VM,
     current: Token,
     previous: Token,
     compiling_chunk: *Chunk,
@@ -98,10 +102,11 @@ pub const Compiler = struct {
     had_panic: bool,
     io: *IoHandler,
 
-    pub fn init(allocator: Allocator, io: *IoHandler) !Self {
-        _ = allocator;
+    pub fn init(allocator: Allocator, vm: *VM, io: *IoHandler) !Self {
         return .{
+            .allocator = allocator,
             .scanner = undefined,
+            .vm = vm,
             .current = undefined,
             .previous = undefined,
             .compiling_chunk = undefined,
@@ -119,9 +124,9 @@ pub const Compiler = struct {
         self.scanner = Scanner.init(source, self.io);
         self.compiling_chunk = chunk;
         self.advance();
-        self.expression();
+        try self.expression();
         self.consume(.eof, "Expect end of expression.");
-        self.endCompiler();
+        try self.endCompiler();
 
         return !self.had_error;
     }
@@ -157,95 +162,99 @@ pub const Compiler = struct {
         self.compiling_chunk.writeByte(byte, self.previous.line);
     }
 
-    fn emitOpCodes(self: *Self, op_code1: OpCode, op_code2: OpCode) void {
-        self.emitOpCode(op_code1);
-        self.emitOpCode(op_code2);
+    fn emitOpCodes(self: *Self, op_code1: OpCode, op_code2: OpCode) CompilerError!void {
+        try self.emitOpCode(op_code1);
+        try self.emitOpCode(op_code2);
     }
 
-    fn emitOpCode(self: *Self, op_code: OpCode) void {
-        self.compiling_chunk.writeOpCode(op_code, self.previous.line) catch {
-            // todo: handle error
-        };
+    fn emitOpCode(self: *Self, op_code: OpCode) CompilerError!void {
+        try self.compiling_chunk.writeOpCode(op_code, self.previous.line);
     }
 
-    fn emitReturn(self: *Self) void {
-        self.emitOpCode(.ret);
+    fn emitReturn(self: *Self) CompilerError!void {
+        try self.emitOpCode(.ret);
     }
 
-    fn emitConstant(self: *Self, value: Value) void {
-        self.compiling_chunk.writeConstant(value, self.previous.line) catch {
-            // todo: handle error
-        };
+    fn emitConstant(self: *Self, value: Value) CompilerError!void {
+        try self.compiling_chunk.writeConstant(value, self.previous.line);
     }
 
-    fn endCompiler(self: *Self) void {
-        self.emitReturn();
+    fn endCompiler(self: *Self) CompilerError!void {
+        try self.emitReturn();
 
         if (comptime exe_options.print_code) {
             disassembleChunk(self.currentChunk(), "code", self.io) catch unreachable;
         }
     }
 
-    fn binary(self: *Self) void {
+    fn binary(self: *Self) CompilerError!void {
         const operator_type = self.previous.type;
         const rule = rules.get(operator_type);
-        self.parsePrecedence(rule.precedence);
+        try self.parsePrecedence(@enumFromInt(@intFromEnum(rule.precedence) + 1));
 
         switch (operator_type) {
-            .plus => self.emitOpCode(.add),
-            .minus => self.emitOpCode(.subtract),
-            .star => self.emitOpCode(.multiply),
-            .slash => self.emitOpCode(.divide),
-            .bang_equal => self.emitOpCodes(.equal, .not),
-            .equal_equal => self.emitOpCode(.equal),
-            .greater => self.emitOpCode(.greater),
-            .greater_equal => self.emitOpCodes(.less, .not),
-            .less => self.emitOpCode(.less),
-            .less_equal => self.emitOpCodes(.greater, .not),
+            .plus => try self.emitOpCode(.add),
+            .minus => try self.emitOpCode(.subtract),
+            .star => try self.emitOpCode(.multiply),
+            .slash => try self.emitOpCode(.divide),
+            .bang_equal => try self.emitOpCodes(.equal, .not),
+            .equal_equal => try self.emitOpCode(.equal),
+            .greater => try self.emitOpCode(.greater),
+            .greater_equal => try self.emitOpCodes(.less, .not),
+            .less => try self.emitOpCode(.less),
+            .less_equal => try self.emitOpCodes(.greater, .not),
             else => unreachable,
         }
     }
 
-    fn literal(self: *Self) void {
+    fn literal(self: *Self) CompilerError!void {
         switch (self.previous.type) {
-            .false => self.emitOpCode(.false),
-            .nil => self.emitOpCode(.nil),
-            .true => self.emitOpCode(.true),
+            .false => try self.emitOpCode(.false),
+            .nil => try self.emitOpCode(.nil),
+            .true => try self.emitOpCode(.true),
             else => unreachable,
         }
     }
 
-    fn expression(self: *Self) void {
-        self.parsePrecedence(.assignment);
+    fn expression(self: *Self) CompilerError!void {
+        try self.parsePrecedence(.assignment);
     }
 
-    fn grouping(self: *Self) void {
-        self.expression();
+    fn grouping(self: *Self) CompilerError!void {
+        try self.expression();
         self.consume(.right_paren, "Expect ')' after expression.");
     }
 
-    fn number(self: *Self) void {
-        const value = parseFloat(f64, self.previous.lexeme) catch {
-            // todo: properly handle the error
-            self.emitConstant(.{ .number = 0.0 });
-            return;
-        };
-        self.emitConstant(.{ .number = value });
+    fn number(self: *Self) CompilerError!void {
+        const value = parseFloat(f64, self.previous.lexeme) catch unreachable;
+        try self.emitConstant(.{ .number = value });
     }
 
-    fn unary(self: *Self) void {
+    fn string(self: *Self) CompilerError!void {
+        const string_obj = try Obj.String.fromBufAlloc(
+            self.allocator,
+            self.previous.lexeme[1 .. self.previous.lexeme.len - 1],
+            self.vm,
+        );
+
+        try self.emitConstant(.{
+            .obj = &string_obj.obj,
+        });
+    }
+
+    fn unary(self: *Self) CompilerError!void {
         const operator_type = self.previous.type;
 
-        self.parsePrecedence(.unary);
+        try self.parsePrecedence(.unary);
 
         switch (operator_type) {
-            .bang => self.emitOpCode(.not),
-            .minus => self.emitOpCode(.negate),
+            .bang => try self.emitOpCode(.not),
+            .minus => try self.emitOpCode(.negate),
             else => return,
         }
     }
 
-    fn parsePrecedence(self: *Self, precedence: Precedence) void {
+    fn parsePrecedence(self: *Self, precedence: Precedence) CompilerError!void {
         self.advance();
 
         const prefixRule = rules.get(self.previous.type).prefix;
@@ -255,12 +264,12 @@ pub const Compiler = struct {
             return;
         }
 
-        prefixRule.?(self);
+        try prefixRule.?(self);
 
         while (@intFromEnum(precedence) <= @intFromEnum(rules.get(self.current.type).precedence)) {
             self.advance();
             const infixRule = rules.get(self.previous.type).infix;
-            infixRule.?(self);
+            try infixRule.?(self);
         }
     }
 
