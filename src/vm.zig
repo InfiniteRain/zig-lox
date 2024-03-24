@@ -19,6 +19,7 @@ const io_handler_package = @import("io_handler.zig");
 const IoHandler = io_handler_package.IoHandler;
 const exe_options = @import("exe_options");
 const trace_execution = exe_options.trace_execution;
+const activeTag = std.meta.activeTag;
 
 pub const InterpretError = error{
     CompileError,
@@ -30,6 +31,8 @@ pub const BinaryOperation = enum {
     subtract,
     multiply,
     divide,
+    greater,
+    less,
 };
 
 const Stack = struct {
@@ -62,6 +65,10 @@ const Stack = struct {
     pub fn pop(self: *Self) Value {
         self.top -= 1;
         return self.top[0];
+    }
+
+    pub fn peek(self: *Self, distance: usize) Value {
+        return (self.top - 1 - distance)[0];
     }
 
     pub fn reset(self: *Self) void {
@@ -141,11 +148,30 @@ pub const VM = struct {
                     const value = self.readConstantLong();
                     self.stack.push(value);
                 },
-                .negate => self.stack.push(-self.stack.pop()),
-                .add => self.binaryOperation(.add),
-                .subtract => self.binaryOperation(.subtract),
-                .multiply => self.binaryOperation(.multiply),
-                .divide => self.binaryOperation(.divide),
+                .negate => {
+                    if (self.stack.peek(0) != .number) {
+                        self.runtimeError("Operand must be a number.", .{});
+                        return error.RuntimeError;
+                    }
+
+                    self.stack.push(Value{ .number = -self.stack.pop().number });
+                },
+                .add => try self.binaryOperation(.add),
+                .nil => self.stack.push(.nil),
+                .true => self.stack.push(Value{ .bool = true }),
+                .false => self.stack.push(Value{ .bool = false }),
+                .subtract => try self.binaryOperation(.subtract),
+                .multiply => try self.binaryOperation(.multiply),
+                .divide => try self.binaryOperation(.divide),
+                .not => self.stack.push(Value{ .bool = Self.isFalsey(self.stack.pop()) }),
+                .equal => {
+                    const b = self.stack.pop();
+                    const a = self.stack.pop();
+
+                    self.stack.push(Value{ .bool = Self.valuesEqual(a, b) });
+                },
+                .less => try self.binaryOperation(.less),
+                .greater => try self.binaryOperation(.greater),
                 .ret => {
                     printPlainValue(self.stack.pop(), self.io);
                     self.io.print("\n", .{});
@@ -156,16 +182,37 @@ pub const VM = struct {
         }
     }
 
-    fn binaryOperation(self: *Self, operation: BinaryOperation) void {
-        const b = self.stack.pop();
-        const a = self.stack.pop();
+    fn binaryOperation(self: *Self, operation: BinaryOperation) InterpretError!void {
+        if (self.stack.peek(0) != .number or self.stack.peek(1) != .number) {
+            self.runtimeError("Operands must be numbers.", .{});
+            return error.RuntimeError;
+        }
 
-        self.stack.push(switch (operation) {
-            .add => a + b,
-            .subtract => a - b,
-            .multiply => a * b,
-            .divide => a / b,
-        });
+        const b = self.stack.pop().number;
+        const a = self.stack.pop().number;
+
+        self.stack.push(
+            switch (operation) {
+                .add => Value{ .number = a + b },
+                .subtract => Value{ .number = a - b },
+                .multiply => Value{ .number = a * b },
+                .divide => Value{ .number = a / b },
+                .greater => Value{ .bool = a > b },
+                .less => Value{ .bool = a < b },
+            },
+        );
+    }
+
+    fn valuesEqual(a: Value, b: Value) bool {
+        if (activeTag(a) != activeTag(b)) {
+            return false;
+        }
+
+        return switch (a) {
+            .bool => a.bool == b.bool,
+            .nil => true,
+            .number => a.number == b.number,
+        };
     }
 
     fn readConstant(self: *Self) Value {
@@ -195,5 +242,18 @@ pub const VM = struct {
 
     fn getOffset(self: *Self) usize {
         return @intFromPtr(self.ip) - @intFromPtr(&self.chunk.code.data[0]);
+    }
+
+    fn isFalsey(value: Value) bool {
+        return (value == .bool and !value.bool) or value == .nil;
+    }
+
+    fn runtimeError(self: *Self, comptime format: []const u8, args: anytype) void {
+        self.io.err(format, args);
+        self.io.err("\n", .{});
+
+        const line = self.chunk.getLine(self.getOffset() - 1) catch unreachable;
+        self.io.err("[line {}] in script\n", .{line});
+        self.stack.reset();
     }
 };

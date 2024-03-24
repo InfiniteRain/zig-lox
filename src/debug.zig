@@ -1,4 +1,6 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+const allocPrint = std.fmt.allocPrint;
 const assert = std.debug.assert;
 const chunk_package = @import("chunk.zig");
 const OpCode = chunk_package.OpCode;
@@ -36,14 +38,21 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
     const instruction = chunk.code.data[offset];
 
     return switch (@as(OpCode, @enumFromInt(instruction))) {
-        OpCode.ret => simpleInstruction("RET", offset, io),
-        OpCode.constant => constantInstruction(chunk, "CONSTANT", offset, io),
-        OpCode.constant_long => constantLongInstruction(chunk, "CONSTANT_LONG", offset, io),
-        OpCode.negate => simpleInstruction("NEGATE", offset, io),
-        OpCode.add => simpleInstruction("ADD", offset, io),
-        OpCode.subtract => simpleInstruction("SUBTRACT", offset, io),
-        OpCode.multiply => simpleInstruction("MULTIPLY", offset, io),
-        OpCode.divide => simpleInstruction("DIVIDE", offset, io),
+        .ret => simpleInstruction("RET", offset, io),
+        .constant => constantInstruction(chunk, "CONSTANT", offset, io),
+        .constant_long => constantLongInstruction(chunk, "CONSTANT_LONG", offset, io),
+        .negate => simpleInstruction("NEGATE", offset, io),
+        .add => simpleInstruction("ADD", offset, io),
+        .nil => simpleInstruction("NIL", offset, io),
+        .true => simpleInstruction("TRUE", offset, io),
+        .false => simpleInstruction("FALSE", offset, io),
+        .subtract => simpleInstruction("SUBTRACT", offset, io),
+        .multiply => simpleInstruction("MULTIPLY", offset, io),
+        .divide => simpleInstruction("DIVIDE", offset, io),
+        .not => simpleInstruction("NOT", offset, io),
+        .equal => simpleInstruction("EQUAL", offset, io),
+        .greater => simpleInstruction("GREATER", offset, io),
+        .less => simpleInstruction("LESS", offset, io),
         _ => blk: {
             io.print("{s: <16} Error: invalid opcode, got {}\n", .{ "?", instruction });
             break :blk offset + 1;
@@ -83,5 +92,9 @@ fn extractConstant(chunk: *const Chunk, index: usize) Value {
 }
 
 pub fn printPlainValue(value: Value, io: *IoHandler) void {
-    io.print("{d}", .{value});
+    switch (value) {
+        .bool => io.print("bool({s})", .{if (value.bool) "true" else "false"}),
+        .nil => io.print("nil", .{}),
+        .number => io.print("number({d})", .{value.number}),
+    }
 }

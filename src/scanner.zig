@@ -204,15 +204,14 @@ pub const Scanner = struct {
                 '\n' => {
                     self.line += 1;
                     _ = self.advance();
-                    break;
                 },
                 '/' => {
-                    if (self.peekNext() == '/') {
-                        while (self.peek() != '\n' and !self.isAtEnd()) {
-                            _ = self.advance();
-                        }
-                    } else {
+                    if (self.peekNext() != '/') {
                         return;
+                    }
+
+                    while (self.peek() != '\n' and !self.isAtEnd()) {
+                        _ = self.advance();
                     }
                 },
                 else => {

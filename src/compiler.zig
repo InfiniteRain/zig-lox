@@ -58,31 +58,31 @@ pub const Compiler = struct {
         array.set(.semicolon, .{});
         array.set(.slash, .{ .infix = Self.binary, .precedence = .factor });
         array.set(.star, .{ .infix = Self.binary, .precedence = .factor });
-        array.set(.bang, .{});
-        array.set(.bang_equal, .{});
+        array.set(.bang, .{ .prefix = Self.unary });
+        array.set(.bang_equal, .{ .prefix = Self.binary, .precedence = .equality });
         array.set(.equal, .{});
-        array.set(.equal_equal, .{});
-        array.set(.greater, .{});
-        array.set(.greater_equal, .{});
-        array.set(.less, .{});
-        array.set(.less_equal, .{});
+        array.set(.equal_equal, .{ .infix = Self.binary, .precedence = .equality });
+        array.set(.greater, .{ .infix = Self.binary, .precedence = .comparison });
+        array.set(.greater_equal, .{ .infix = Self.binary, .precedence = .comparison });
+        array.set(.less, .{ .infix = Self.binary, .precedence = .comparison });
+        array.set(.less_equal, .{ .infix = Self.binary, .precedence = .comparison });
         array.set(.identifier, .{});
         array.set(.string, .{});
         array.set(.number, .{ .prefix = Self.number });
         array.set(._and, .{});
         array.set(.class, .{});
         array.set(._else, .{});
-        array.set(.false, .{});
+        array.set(.false, .{ .prefix = Self.literal });
         array.set(._for, .{});
         array.set(.fun, .{});
         array.set(._if, .{});
-        array.set(.nil, .{});
+        array.set(.nil, .{ .prefix = Self.literal });
         array.set(._or, .{});
         array.set(.print, .{});
         array.set(._return, .{});
         array.set(.super, .{});
         array.set(.this, .{});
-        array.set(.true, .{});
+        array.set(.true, .{ .prefix = Self.literal });
         array.set(._var, .{});
         array.set(._while, .{});
         array.set(._error, .{});
@@ -157,9 +157,9 @@ pub const Compiler = struct {
         self.compiling_chunk.writeByte(byte, self.previous.line);
     }
 
-    fn emitBytes(self: *Self, byte1: u8, byte2: u8) void {
-        self.emitByte(byte1);
-        self.emitByte(byte2);
+    fn emitOpCodes(self: *Self, op_code1: OpCode, op_code2: OpCode) void {
+        self.emitOpCode(op_code1);
+        self.emitOpCode(op_code2);
     }
 
     fn emitOpCode(self: *Self, op_code: OpCode) void {
@@ -196,6 +196,21 @@ pub const Compiler = struct {
             .minus => self.emitOpCode(.subtract),
             .star => self.emitOpCode(.multiply),
             .slash => self.emitOpCode(.divide),
+            .bang_equal => self.emitOpCodes(.equal, .not),
+            .equal_equal => self.emitOpCode(.equal),
+            .greater => self.emitOpCode(.greater),
+            .greater_equal => self.emitOpCodes(.less, .not),
+            .less => self.emitOpCode(.less),
+            .less_equal => self.emitOpCodes(.greater, .not),
+            else => unreachable,
+        }
+    }
+
+    fn literal(self: *Self) void {
+        switch (self.previous.type) {
+            .false => self.emitOpCode(.false),
+            .nil => self.emitOpCode(.nil),
+            .true => self.emitOpCode(.true),
             else => unreachable,
         }
     }
@@ -212,10 +227,10 @@ pub const Compiler = struct {
     fn number(self: *Self) void {
         const value = parseFloat(f64, self.previous.lexeme) catch {
             // todo: properly handle the error
-            self.emitConstant(0.0);
+            self.emitConstant(.{ .number = 0.0 });
             return;
         };
-        self.emitConstant(value);
+        self.emitConstant(.{ .number = value });
     }
 
     fn unary(self: *Self) void {
@@ -224,6 +239,7 @@ pub const Compiler = struct {
         self.parsePrecedence(.unary);
 
         switch (operator_type) {
+            .bang => self.emitOpCode(.not),
             .minus => self.emitOpCode(.negate),
             else => return,
         }

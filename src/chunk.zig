@@ -26,10 +26,17 @@ pub const OpCode = enum(u8) {
     constant,
     constant_long,
     negate,
+    nil,
+    true,
+    false,
+    equal,
+    greater,
+    less,
     add,
     subtract,
     multiply,
     divide,
+    not,
     _,
 };
 
@@ -95,6 +102,12 @@ pub const Chunk = struct {
         assert(index < self.lines.count);
 
         return try self.lines.get(index);
+    }
+
+    pub fn getLastLine(self: *const Self) u64 {
+        assert(self.lines.count > 0);
+
+        return self.lines.get(self.lines.count - 1) catch unreachable;
     }
 
     pub fn addConstant(self: *Self, value: Value) !usize {
