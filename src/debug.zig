@@ -11,9 +11,6 @@ const builtin = @import("builtin");
 const io_handler_package = @import("io_handler.zig");
 const IoHandler = io_handler_package.IoHandler;
 
-pub const is_debug_mode = builtin.mode == .Debug;
-pub const debug_trace_execution = true;
-
 pub fn disassembleChunk(chunk: *const Chunk, name: []const u8, io: *IoHandler) !void {
     io.print("== {s} ==\n", .{name});
 
@@ -63,7 +60,7 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
 fn constantInstruction(chunk: *const Chunk, name: []const u8, offset: usize, io: *IoHandler) usize {
     const index = chunk.readByte(offset + 1);
     io.print("{s: <16} {:0>4} '", .{ name, index });
-    printPlainValue(extractConstant(chunk, index), io);
+    extractConstant(chunk, index).print(io);
     io.print("'\n", .{});
 
     return offset + 2;
@@ -76,7 +73,7 @@ fn constantLongInstruction(chunk: *const Chunk, name: []const u8, offset: usize,
     const index: usize = (left << 16) | (middle << 8) | right;
 
     io.print("{s: <16} {:0>4} '", .{ name, index });
-    printPlainValue(extractConstant(chunk, index), io);
+    extractConstant(chunk, index).print(io);
     io.print("'\n", .{});
 
     return offset + 4;
@@ -89,12 +86,4 @@ fn simpleInstruction(name: []const u8, offset: usize, io: *IoHandler) usize {
 
 fn extractConstant(chunk: *const Chunk, index: usize) Value {
     return chunk.constants.data[index];
-}
-
-pub fn printPlainValue(value: Value, io: *IoHandler) void {
-    switch (value) {
-        .bool => io.print("bool({s})", .{if (value.bool) "true" else "false"}),
-        .nil => io.print("nil", .{}),
-        .number => io.print("number({d})", .{value.number}),
-    }
 }

@@ -36,7 +36,7 @@ pub const IoHandler = struct {
         };
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *const Self) void {
         free(self.allocator, self.write_buffer);
     }
 

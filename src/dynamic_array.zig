@@ -1,6 +1,5 @@
 const std = @import("std");
-const mem = std.mem;
-const Allocator = mem.Allocator;
+const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const expect = testing.expect;
 const memory_package = @import("memory.zig");

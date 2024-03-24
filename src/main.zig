@@ -1,10 +1,10 @@
 const std = @import("std");
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
-const process = std.process;
+const argsAlloc = std.process.argsAlloc;
+const argsFree = std.process.argsFree;
 const os = std.os;
 const fixedBufferStream = std.io.fixedBufferStream;
-const mem = std.mem;
-const Allocator = mem.Allocator;
+const Allocator = std.mem.Allocator;
 const chunk_package = @import("chunk.zig");
 const OpCode = chunk_package.OpCode;
 const Chunk = chunk_package.Chunk;
@@ -23,8 +23,8 @@ pub fn main() !void {
     var gpa = GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
-    const args = try process.argsAlloc(allocator);
-    defer process.argsFree(allocator, args);
+    const args = try argsAlloc(allocator);
+    defer argsFree(allocator, args);
 
     var io = try IoHandler.init(allocator);
     defer io.deinit();
@@ -32,13 +32,13 @@ pub fn main() !void {
     var vm = try VM.init(allocator, &io);
     defer vm.deinit();
 
-    if (args.len == 1) {
-        try repl(&vm, &io);
-    } else if (args.len == 2) {
-        try runFile(allocator, args[1], &vm, &io);
-    } else {
-        io.err("Usage: zig-lox [path]\n", .{});
-        os.exit(64);
+    switch (args.len) {
+        1 => try repl(&vm, &io),
+        2 => try runFile(allocator, args[1], &vm, &io),
+        else => {
+            io.err("Usage: zig-lox [path]\n", .{});
+            os.exit(64);
+        },
     }
 }
 

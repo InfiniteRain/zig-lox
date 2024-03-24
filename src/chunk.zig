@@ -3,8 +3,7 @@ const testing = std.testing;
 const assert = std.debug.assert;
 const expect = testing.expect;
 const expectError = testing.expectError;
-const mem = std.mem;
-const Allocator = mem.Allocator;
+const Allocator = std.mem.Allocator;
 const memory_package = @import("memory.zig");
 const growCapacity = memory_package.growCapacity;
 const alloc = memory_package.alloc;
@@ -16,8 +15,6 @@ const value_package = @import("value.zig");
 const Value = value_package.Value;
 const rle_array_package = @import("rle_array.zig");
 const RleArray = rle_array_package.RleArray;
-const debug_package = @import("debug.zig");
-const is_debug_mode = debug_package.is_debug_mode;
 
 const OpCodeError = error{NotOperand};
 
@@ -102,12 +99,6 @@ pub const Chunk = struct {
         assert(index < self.lines.count);
 
         return try self.lines.get(index);
-    }
-
-    pub fn getLastLine(self: *const Self) u64 {
-        assert(self.lines.count > 0);
-
-        return self.lines.get(self.lines.count - 1) catch unreachable;
     }
 
     pub fn addConstant(self: *Self, value: Value) !usize {

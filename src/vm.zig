@@ -9,9 +9,7 @@ const OpCode = chunk_package.OpCode;
 const value_package = @import("value.zig");
 const Value = value_package.Value;
 const debug_package = @import("debug.zig");
-const printPlainValue = debug_package.printPlainValue;
 const disassembleInstruction = debug_package.disassembleInstruction;
-const is_debug_mode = debug_package.is_debug_mode;
 const compiler_package = @import("compiler.zig");
 const Compiler = compiler_package.Compiler;
 const CompilerError = compiler_package.CompilerError;
@@ -127,7 +125,7 @@ pub const VM = struct {
 
                 while (@intFromPtr(slot) < @intFromPtr(self.stack.top)) {
                     self.io.print("[ ", .{});
-                    printPlainValue(slot[0], self.io);
+                    slot[0].print(self.io);
                     self.io.print(" ]", .{});
                     slot += 1;
                 }
@@ -163,17 +161,17 @@ pub const VM = struct {
                 .subtract => try self.binaryOperation(.subtract),
                 .multiply => try self.binaryOperation(.multiply),
                 .divide => try self.binaryOperation(.divide),
-                .not => self.stack.push(Value{ .bool = Self.isFalsey(self.stack.pop()) }),
+                .not => self.stack.push(Value{ .bool = self.stack.pop().isFalsey() }),
                 .equal => {
                     const b = self.stack.pop();
                     const a = self.stack.pop();
 
-                    self.stack.push(Value{ .bool = Self.valuesEqual(a, b) });
+                    self.stack.push(Value{ .bool = a.equals(b) });
                 },
                 .less => try self.binaryOperation(.less),
                 .greater => try self.binaryOperation(.greater),
                 .ret => {
-                    printPlainValue(self.stack.pop(), self.io);
+                    self.stack.pop().print(self.io);
                     self.io.print("\n", .{});
                     return;
                 },
@@ -203,18 +201,6 @@ pub const VM = struct {
         );
     }
 
-    fn valuesEqual(a: Value, b: Value) bool {
-        if (activeTag(a) != activeTag(b)) {
-            return false;
-        }
-
-        return switch (a) {
-            .bool => a.bool == b.bool,
-            .nil => true,
-            .number => a.number == b.number,
-        };
-    }
-
     fn readConstant(self: *Self) Value {
         return self.chunk.getConstant(self.readByte());
     }
@@ -242,10 +228,6 @@ pub const VM = struct {
 
     fn getOffset(self: *Self) usize {
         return @intFromPtr(self.ip) - @intFromPtr(&self.chunk.code.data[0]);
-    }
-
-    fn isFalsey(value: Value) bool {
-        return (value == .bool and !value.bool) or value == .nil;
     }
 
     fn runtimeError(self: *Self, comptime format: []const u8, args: anytype) void {

@@ -75,16 +75,6 @@ pub const Scanner = struct {
         };
     }
 
-    pub fn isAlpha(char: u8) bool {
-        return (char >= 'a' and char <= 'z') or
-            (char >= 'A' and char <= 'Z') or
-            char == '_';
-    }
-
-    pub fn isDigit(char: u8) bool {
-        return char >= '0' and char <= '9';
-    }
-
     pub fn scanToken(self: *Self) Token {
         self.skipWhitespace();
         self.start = self.current;
@@ -124,17 +114,27 @@ pub const Scanner = struct {
         };
     }
 
-    pub fn isAtEnd(self: *Self) bool {
+    fn isAlpha(char: u8) bool {
+        return (char >= 'a' and char <= 'z') or
+            (char >= 'A' and char <= 'Z') or
+            char == '_';
+    }
+
+    fn isDigit(char: u8) bool {
+        return char >= '0' and char <= '9';
+    }
+
+    fn isAtEnd(self: *Self) bool {
         return self.current >= self.source.len;
     }
 
-    pub fn advance(self: *Self) u8 {
+    fn advance(self: *Self) u8 {
         const char = self.source[self.current];
         self.current += 1;
         return char;
     }
 
-    pub fn peek(self: *Self) u8 {
+    fn peek(self: *Self) u8 {
         if (self.isAtEnd()) {
             return 0;
         }
@@ -142,7 +142,7 @@ pub const Scanner = struct {
         return self.source[self.current];
     }
 
-    pub fn peekNext(self: *Self) u8 {
+    fn peekNext(self: *Self) u8 {
         if (self.current + 1 >= self.source.len) {
             return 0;
         }
@@ -150,7 +150,7 @@ pub const Scanner = struct {
         return self.source[self.current + 1];
     }
 
-    pub fn match(self: *Self, expected: u8) bool {
+    fn match(self: *Self, expected: u8) bool {
         if (self.isAtEnd()) {
             return false;
         }
@@ -163,7 +163,7 @@ pub const Scanner = struct {
         return true;
     }
 
-    pub fn makeToken(self: *Self, _type: TokenType) Token {
+    fn makeToken(self: *Self, _type: TokenType) Token {
         return .{
             .type = _type,
             .lexeme = self.source[self.start..self.current],
@@ -171,7 +171,7 @@ pub const Scanner = struct {
         };
     }
 
-    pub fn makeEofToken(self: *Self) Token {
+    fn makeEofToken(self: *Self) Token {
         return .{
             .type = .eof,
             .lexeme = "",
@@ -179,7 +179,7 @@ pub const Scanner = struct {
         };
     }
 
-    pub fn makeErrorToken(self: *Self, message: []const u8) Token {
+    fn makeErrorToken(self: *Self, message: []const u8) Token {
         return .{
             .type = ._error,
             .lexeme = message,
@@ -187,7 +187,7 @@ pub const Scanner = struct {
         };
     }
 
-    pub fn identifier(self: *Self) Token {
+    fn identifier(self: *Self) Token {
         while (Self.isAlpha(self.peek()) or Self.isDigit(self.peek())) {
             _ = self.advance();
         }
@@ -195,7 +195,7 @@ pub const Scanner = struct {
         return self.makeToken(self.identifierType());
     }
 
-    pub fn skipWhitespace(self: *Self) void {
+    fn skipWhitespace(self: *Self) void {
         while (true) {
             switch (self.peek()) {
                 ' ', '\r', '\t' => {
@@ -221,7 +221,7 @@ pub const Scanner = struct {
         }
     }
 
-    pub fn checkKeyword(self: *Self, start: usize, rest: []const u8, _type: TokenType) TokenType {
+    fn checkKeyword(self: *Self, start: usize, rest: []const u8, _type: TokenType) TokenType {
         if (self.current - self.start == start + rest.len and
             mem.eql(u8, rest, self.source[self.start + start .. self.start + rest.len + start]))
         {
@@ -231,7 +231,7 @@ pub const Scanner = struct {
         return .identifier;
     }
 
-    pub fn identifierType(self: *Self) TokenType {
+    fn identifierType(self: *Self) TokenType {
         return switch (self.source[self.start]) {
             'a' => self.checkKeyword(1, "nd", ._and),
             'c' => self.checkKeyword(1, "lass", .class),
@@ -273,7 +273,7 @@ pub const Scanner = struct {
         };
     }
 
-    pub fn number(self: *Self) Token {
+    fn number(self: *Self) Token {
         while (Self.isDigit(self.peek())) {
             _ = self.advance();
         }
@@ -289,7 +289,7 @@ pub const Scanner = struct {
         return self.makeToken(.number);
     }
 
-    pub fn string(self: *Self) Token {
+    fn string(self: *Self) Token {
         while (self.peek() != '"' and !self.isAtEnd()) {
             if (self.peek() == '\n') {
                 self.line += 1;

@@ -115,10 +115,6 @@ pub const Compiler = struct {
         _ = self;
     }
 
-    pub fn currentChunk(self: *Self) *Chunk {
-        return self.compiling_chunk;
-    }
-
     pub fn compile(self: *Self, source: []const u8, chunk: *Chunk) !bool {
         self.scanner = Scanner.init(source, self.io);
         self.compiling_chunk = chunk;
@@ -128,6 +124,10 @@ pub const Compiler = struct {
         self.endCompiler();
 
         return !self.had_error;
+    }
+
+    fn currentChunk(self: *Self) *Chunk {
+        return self.compiling_chunk;
     }
 
     fn advance(self: *Self) void {
