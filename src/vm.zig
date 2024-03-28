@@ -23,6 +23,8 @@ const alloc = memory_package.alloc;
 const freeObjects = memory_package.freeObjects;
 const object_package = @import("object.zig");
 const Obj = object_package.Obj;
+const table_package = @import("table.zig");
+const Table = table_package.Table;
 
 pub const InterpretError = error{
     CompileError,
@@ -86,6 +88,7 @@ pub const VM = struct {
     ip: [*]u8,
     stack: Stack,
     io: *IoHandler,
+    strings: Table,
     objects: ?*Obj,
 
     pub fn init(allocator: Allocator, io: *IoHandler) !Self {
@@ -95,6 +98,7 @@ pub const VM = struct {
             .ip = undefined,
             .stack = try Stack.init(allocator),
             .io = io,
+            .strings = try Table.init(allocator),
             .objects = null,
         };
 
@@ -103,6 +107,7 @@ pub const VM = struct {
 
     pub fn deinit(self: *Self) void {
         self.stack.deinit();
+        self.strings.deinit();
         Obj.freeList(self.allocator, self.objects);
     }
 

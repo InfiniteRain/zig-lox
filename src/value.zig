@@ -39,18 +39,7 @@ pub const Value = union(enum) {
             .bool => a.bool == b.bool,
             .nil => true,
             .number => a.number == b.number,
-            .obj => {
-                if (a.obj.type != b.obj.type) {
-                    return false;
-                }
-
-                const a_string = a.obj.as(.string).chars;
-                const b_string = b.obj.as(.string).chars;
-
-                return switch (a.obj.type) {
-                    .string => mem.eql(u8, a_string, b_string),
-                };
-            },
+            .obj => a.obj == b.obj,
         };
     }
 
