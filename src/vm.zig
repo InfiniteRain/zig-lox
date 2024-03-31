@@ -187,6 +187,9 @@ pub const VM = struct {
                 .nil => self.stack.push(.nil),
                 .true => self.stack.push(Value{ .bool = true }),
                 .false => self.stack.push(Value{ .bool = false }),
+                .pop => {
+                    _ = self.stack.pop();
+                },
                 .subtract => try self.binaryOperation(.subtract),
                 .multiply => try self.binaryOperation(.multiply),
                 .divide => try self.binaryOperation(.divide),

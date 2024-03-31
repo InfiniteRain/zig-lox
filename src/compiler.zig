@@ -235,6 +235,12 @@ pub const Compiler = struct {
         try self.parsePrecedence(.assignment);
     }
 
+    fn expressionStatement(self: *Self) CompilerError!void {
+        try self.expression();
+        self.consume(.semicolon, "Expect ';' after expression.");
+        try self.emitOpCode(.pop);
+    }
+
     fn printStatement(self: *Self) CompilerError!void {
         try self.expression();
         self.consume(.semicolon, "Expect ';' after value.");
@@ -248,6 +254,8 @@ pub const Compiler = struct {
     fn statement(self: *Self) CompilerError!void {
         if (self.match(.print)) {
             try self.printStatement();
+        } else {
+            try self.expressionStatement();
         }
     }
 

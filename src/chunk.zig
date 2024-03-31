@@ -27,6 +27,7 @@ pub const OpCode = enum(u8) {
     nil,
     true,
     false,
+    pop,
     equal,
     greater,
     less,

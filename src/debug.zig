@@ -44,6 +44,7 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
         .nil => simpleInstruction("NIL", offset, io),
         .true => simpleInstruction("TRUE", offset, io),
         .false => simpleInstruction("FALSE", offset, io),
+        .pop => simpleInstruction("POP", offset, io),
         .subtract => simpleInstruction("SUBTRACT", offset, io),
         .multiply => simpleInstruction("MULTIPLY", offset, io),
         .divide => simpleInstruction("DIVIDE", offset, io),
