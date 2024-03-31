@@ -39,6 +39,7 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
         .constant => constantInstruction(chunk, "CONSTANT", offset, io),
         .constant_long => constantLongInstruction(chunk, "CONSTANT_LONG", offset, io),
         .negate => simpleInstruction("NEGATE", offset, io),
+        .print => simpleInstruction("PRINT", offset, io),
         .add => simpleInstruction("ADD", offset, io),
         .nil => simpleInstruction("NIL", offset, io),
         .true => simpleInstruction("TRUE", offset, io),

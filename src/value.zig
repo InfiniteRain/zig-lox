@@ -21,7 +21,7 @@ pub const Value = union(enum) {
             .nil => io.print("nil", .{}),
             .number => io.print("{d}", .{self.number}),
             .obj => switch (self.obj.type) {
-                .string => io.print("\"{s}\"", .{self.obj.as(.string).chars}),
+                .string => io.print("{s}", .{self.obj.as(.string).chars}),
             },
         }
     }

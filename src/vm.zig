@@ -163,6 +163,11 @@ pub const VM = struct {
 
                     self.stack.push(Value{ .number = -self.stack.pop().number });
                 },
+                .print => {
+                    const value = self.stack.pop();
+                    value.print(self.io);
+                    self.io.print("\n", .{});
+                },
                 .add => {
                     const r = self.stack.peek(0);
                     const l = self.stack.peek(1);
@@ -195,8 +200,6 @@ pub const VM = struct {
                 .less => try self.binaryOperation(.less),
                 .greater => try self.binaryOperation(.greater),
                 .ret => {
-                    self.stack.pop().print(self.io);
-                    self.io.print("\n", .{});
                     return;
                 },
                 _ => return error.CompileError,

@@ -120,14 +120,16 @@ pub const Compiler = struct {
         _ = self;
     }
 
-    pub fn compile(self: *Self, source: []const u8, chunk: *Chunk) !bool {
+    pub fn compile(self: *Self, source: []const u8, chunk: *Chunk) CompilerError!bool {
         self.scanner = Scanner.init(source, self.io);
         self.compiling_chunk = chunk;
         self.advance();
-        try self.expression();
-        self.consume(.eof, "Expect end of expression.");
-        try self.endCompiler();
 
+        while (!self.check(.eof)) {
+            try self.declaration();
+        }
+
+        try self.endCompiler();
         return !self.had_error;
     }
 
@@ -156,6 +158,19 @@ pub const Compiler = struct {
         }
 
         self.errAtCurrent(message);
+    }
+
+    fn check(self: *Self, token_type: TokenType) bool {
+        return self.current.type == token_type;
+    }
+
+    fn match(self: *Self, token_type: TokenType) bool {
+        if (!self.check(token_type)) {
+            return false;
+        }
+
+        self.advance();
+        return true;
     }
 
     fn emitByte(self: *Self, byte: u8) void {
@@ -218,6 +233,22 @@ pub const Compiler = struct {
 
     fn expression(self: *Self) CompilerError!void {
         try self.parsePrecedence(.assignment);
+    }
+
+    fn printStatement(self: *Self) CompilerError!void {
+        try self.expression();
+        self.consume(.semicolon, "Expect ';' after value.");
+        try self.emitOpCode(.print);
+    }
+
+    fn declaration(self: *Self) CompilerError!void {
+        try self.statement();
+    }
+
+    fn statement(self: *Self) CompilerError!void {
+        if (self.match(.print)) {
+            try self.printStatement();
+        }
     }
 
     fn grouping(self: *Self) CompilerError!void {
