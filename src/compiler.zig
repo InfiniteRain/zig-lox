@@ -99,7 +99,7 @@ pub const Compiler = struct {
     previous: Token,
     compiling_chunk: *Chunk,
     had_error: bool,
-    had_panic: bool,
+    panic_mode: bool,
     io: *IoHandler,
 
     pub fn init(allocator: Allocator, vm: *VM, io: *IoHandler) !Self {
@@ -111,7 +111,7 @@ pub const Compiler = struct {
             .previous = undefined,
             .compiling_chunk = undefined,
             .had_error = false,
-            .had_panic = false,
+            .panic_mode = false,
             .io = io,
         };
     }
@@ -247,8 +247,29 @@ pub const Compiler = struct {
         try self.emitOpCode(.print);
     }
 
+    fn synchronize(self: *Self) void {
+        self.panic_mode = false;
+
+        while (self.current.type != .eof) {
+            if (self.previous.type == .semicolon) {
+                return;
+            }
+
+            switch (self.current.type) {
+                .class, .fun, ._var, ._for, ._if, ._while, .print, ._return => return,
+                else => {
+                    self.advance();
+                },
+            }
+        }
+    }
+
     fn declaration(self: *Self) CompilerError!void {
         try self.statement();
+
+        if (self.panic_mode) {
+            self.synchronize();
+        }
     }
 
     fn statement(self: *Self) CompilerError!void {
@@ -321,11 +342,11 @@ pub const Compiler = struct {
     }
 
     fn errAt(self: *Self, token: *Token, message: []const u8) void {
-        if (self.had_panic) {
+        if (self.panic_mode) {
             return;
         }
 
-        self.had_panic = true;
+        self.panic_mode = true;
         self.io.print("[line {}] Error", .{token.line});
 
         switch (token.type) {
