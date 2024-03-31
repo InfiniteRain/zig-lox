@@ -68,7 +68,7 @@ pub const Compiler = struct {
         array.set(.greater_equal, .{ .infix = Self.binary, .precedence = .comparison });
         array.set(.less, .{ .infix = Self.binary, .precedence = .comparison });
         array.set(.less_equal, .{ .infix = Self.binary, .precedence = .comparison });
-        array.set(.identifier, .{});
+        array.set(.identifier, .{ .prefix = Self.variable });
         array.set(.string, .{ .prefix = Self.string });
         array.set(.number, .{ .prefix = Self.number });
         array.set(._and, .{});
@@ -192,6 +192,10 @@ pub const Compiler = struct {
 
     fn emitConstant(self: *Self, value: Value) CompilerError!void {
         try self.currentChunk().writeConstant(value, self.previous.line);
+    }
+
+    fn emitConstantIndex(self: *Self, index: usize) CompilerError!void {
+        try self.currentChunk().writeConstantIndex(index, self.previous.line);
     }
 
     fn endCompiler(self: *Self) CompilerError!void {
@@ -319,6 +323,22 @@ pub const Compiler = struct {
         });
     }
 
+    fn namedVariable(self: *Self, name: Token) CompilerError!void {
+        const arg = try self.identifierConstant(&name);
+
+        if (arg < 0xFF) {
+            try self.emitOpCode(.get_global);
+        } else {
+            try self.emitOpCode(.get_global_long);
+        }
+
+        try self.emitConstantIndex(arg);
+    }
+
+    fn variable(self: *Self) CompilerError!void {
+        try self.namedVariable(self.previous);
+    }
+
     fn unary(self: *Self) CompilerError!void {
         const operator_type = self.previous.type;
 
@@ -350,7 +370,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn identifierConstant(self: *Self, token: *Token) CompilerError!usize {
+    fn identifierConstant(self: *Self, token: *const Token) CompilerError!usize {
         return try self.currentChunk().addConstant(.{
             .obj = &(try Obj.String.fromBufAlloc(self.allocator, token.lexeme, self.vm)).obj,
         });
@@ -368,7 +388,7 @@ pub const Compiler = struct {
             try self.emitOpCode(.define_global_long);
         }
 
-        try self.currentChunk().writeConstantIndex(global, self.previous.line);
+        try self.emitConstantIndex(global);
     }
 
     fn errAtCurrent(self: *Self, message: []const u8) void {

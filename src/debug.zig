@@ -50,6 +50,8 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
         .divide => simpleInstruction("DIVIDE", offset, io),
         .not => simpleInstruction("NOT", offset, io),
         .equal => simpleInstruction("EQUAL", offset, io),
+        .get_global => constantInstruction(chunk, "GET_GLOBAL", offset, io),
+        .get_global_long => constantLongInstruction(chunk, "GET_GLOBAL_LONG", offset, io),
         .define_global => constantInstruction(chunk, "DEFINE_GLOBAL", offset, io),
         .define_global_long => constantLongInstruction(chunk, "DEFINE_GLOBAL_LONG", offset, io),
         .greater => simpleInstruction("GREATER", offset, io),

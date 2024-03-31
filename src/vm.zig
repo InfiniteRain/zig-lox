@@ -148,12 +148,8 @@ pub const VM = struct {
             const instruction = self.readOpCode();
 
             switch (instruction) {
-                .constant => {
-                    const value = self.readConstant();
-                    self.stack.push(value);
-                },
-                .constant_long => {
-                    const value = self.readConstantLong();
+                .constant, .constant_long => {
+                    const value = if (instruction == .constant) self.readConstant() else self.readConstantLong();
                     self.stack.push(value);
                 },
                 .negate => {
@@ -191,13 +187,21 @@ pub const VM = struct {
                 .pop => {
                     _ = self.stack.pop();
                 },
-                .define_global => {
-                    const name = self.readConstant().obj.as(.string);
-                    _ = try self.globals.set(name, self.stack.peek(0));
-                    _ = self.stack.pop();
+                .get_global, .get_global_long => {
+                    const constant_value = if (instruction == .get_global) self.readConstant() else self.readConstantLong();
+                    const name = constant_value.obj.as(.string);
+                    var value: Value = undefined;
+
+                    if (!self.globals.get(name, &value)) {
+                        self.runtimeError("Undefined variable '{s}'.", .{name.chars});
+                        return error.InterpretError;
+                    }
+
+                    self.stack.push(value);
                 },
-                .define_global_long => {
-                    const name = self.readConstantLong().obj.as(.string);
+                .define_global, .define_global_long => {
+                    const constant_value = if (instruction == .define_global) self.readConstant() else self.readConstantLong();
+                    const name = constant_value.obj.as(.string);
                     _ = try self.globals.set(name, self.stack.peek(0));
                     _ = self.stack.pop();
                 },
