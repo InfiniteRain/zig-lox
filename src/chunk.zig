@@ -28,6 +28,8 @@ pub const OpCode = enum(u8) {
     true,
     false,
     pop,
+    define_global,
+    define_global_long,
     equal,
     greater,
     less,
@@ -80,11 +82,19 @@ pub const Chunk = struct {
     pub fn writeConstant(self: *Self, value: Value, line: u64) !void {
         const index = try self.addConstant(value);
 
-        if (index < 256) {
+        if (index < 0xFF) {
             try self.writeOpCode(OpCode.constant, line);
-            try self.writeByte(@intCast(index), line);
         } else {
             try self.writeOpCode(OpCode.constant_long, line);
+        }
+
+        try self.writeConstantIndex(index, line);
+    }
+
+    pub fn writeConstantIndex(self: *Self, index: usize, line: u64) !void {
+        if (index < 0xFF) {
+            try self.writeByte(@intCast(index), line);
+        } else {
             try self.writeByte(@intCast(0xFF & (@as(u24, @intCast(index & 0xFFFFFF)) >> 16)), line);
             try self.writeByte(@intCast(0xFF & (@as(u24, @intCast(index & 0xFFFFFF)) >> 8)), line);
             try self.writeByte(@intCast(0xFF & (@as(u24, @intCast(index & 0xFFFFFF)))), line);

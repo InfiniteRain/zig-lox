@@ -89,25 +89,26 @@ pub const VM = struct {
     stack: Stack,
     io: *IoHandler,
     strings: Table,
+    globals: Table,
     objects: ?*Obj,
 
     pub fn init(allocator: Allocator, io: *IoHandler) !Self {
-        var vm: Self = .{
+        return .{
             .allocator = allocator,
             .chunk = undefined,
             .ip = undefined,
             .stack = try Stack.init(allocator),
             .io = io,
             .strings = try Table.init(allocator),
+            .globals = try Table.init(allocator),
             .objects = null,
         };
-
-        return vm;
     }
 
     pub fn deinit(self: *Self) void {
         self.stack.deinit();
         self.strings.deinit();
+        self.globals.deinit();
         Obj.freeList(self.allocator, self.objects);
     }
 
@@ -190,6 +191,16 @@ pub const VM = struct {
                 .pop => {
                     _ = self.stack.pop();
                 },
+                .define_global => {
+                    const name = self.readConstant().obj.as(.string);
+                    _ = try self.globals.set(name, self.stack.peek(0));
+                    _ = self.stack.pop();
+                },
+                .define_global_long => {
+                    const name = self.readConstantLong().obj.as(.string);
+                    _ = try self.globals.set(name, self.stack.peek(0));
+                    _ = self.stack.pop();
+                },
                 .subtract => try self.binaryOperation(.subtract),
                 .multiply => try self.binaryOperation(.multiply),
                 .divide => try self.binaryOperation(.divide),
@@ -243,11 +254,11 @@ pub const VM = struct {
         );
     }
 
-    fn readConstant(self: *Self) Value {
+    pub fn readConstant(self: *Self) Value {
         return self.chunk.getConstant(self.readByte());
     }
 
-    fn readConstantLong(self: *Self) Value {
+    pub fn readConstantLong(self: *Self) Value {
         const left: u24 = self.readByte();
         const middle: u24 = self.readByte();
         const right = self.readByte();

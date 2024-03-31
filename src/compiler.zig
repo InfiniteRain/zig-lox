@@ -173,8 +173,8 @@ pub const Compiler = struct {
         return true;
     }
 
-    fn emitByte(self: *Self, byte: u8) void {
-        self.compiling_chunk.writeByte(byte, self.previous.line);
+    fn emitByte(self: *Self, byte: u8) CompilerError!void {
+        try self.currentChunk().writeByte(byte, self.previous.line);
     }
 
     fn emitOpCodes(self: *Self, op_code1: OpCode, op_code2: OpCode) CompilerError!void {
@@ -183,7 +183,7 @@ pub const Compiler = struct {
     }
 
     fn emitOpCode(self: *Self, op_code: OpCode) CompilerError!void {
-        try self.compiling_chunk.writeOpCode(op_code, self.previous.line);
+        try self.currentChunk().writeOpCode(op_code, self.previous.line);
     }
 
     fn emitReturn(self: *Self) CompilerError!void {
@@ -191,7 +191,7 @@ pub const Compiler = struct {
     }
 
     fn emitConstant(self: *Self, value: Value) CompilerError!void {
-        try self.compiling_chunk.writeConstant(value, self.previous.line);
+        try self.currentChunk().writeConstant(value, self.previous.line);
     }
 
     fn endCompiler(self: *Self) CompilerError!void {
@@ -235,6 +235,19 @@ pub const Compiler = struct {
         try self.parsePrecedence(.assignment);
     }
 
+    fn varDeclaration(self: *Self) CompilerError!void {
+        const global = try self.parseVariable("Expect variable name");
+
+        if (self.match(.equal)) {
+            try self.expression();
+        } else {
+            try self.emitOpCode(.nil);
+        }
+
+        self.consume(.semicolon, "Expect ';' after variable declaration.");
+        try self.defineVariable(global);
+    }
+
     fn expressionStatement(self: *Self) CompilerError!void {
         try self.expression();
         self.consume(.semicolon, "Expect ';' after expression.");
@@ -265,7 +278,11 @@ pub const Compiler = struct {
     }
 
     fn declaration(self: *Self) CompilerError!void {
-        try self.statement();
+        if (self.match(._var)) {
+            try self.varDeclaration();
+        } else {
+            try self.statement();
+        }
 
         if (self.panic_mode) {
             self.synchronize();
@@ -331,6 +348,27 @@ pub const Compiler = struct {
             const infixRule = rules.get(self.previous.type).infix;
             try infixRule.?(self);
         }
+    }
+
+    fn identifierConstant(self: *Self, token: *Token) CompilerError!usize {
+        return try self.currentChunk().addConstant(.{
+            .obj = &(try Obj.String.fromBufAlloc(self.allocator, token.lexeme, self.vm)).obj,
+        });
+    }
+
+    fn parseVariable(self: *Self, errorMessage: []const u8) CompilerError!usize {
+        self.consume(.identifier, errorMessage);
+        return try self.identifierConstant(&self.previous);
+    }
+
+    fn defineVariable(self: *Self, global: usize) CompilerError!void {
+        if (global < 0xFF) {
+            try self.emitOpCode(.define_global);
+        } else {
+            try self.emitOpCode(.define_global_long);
+        }
+
+        try self.currentChunk().writeConstantIndex(global, self.previous.line);
     }
 
     fn errAtCurrent(self: *Self, message: []const u8) void {

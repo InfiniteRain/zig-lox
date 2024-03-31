@@ -50,10 +50,12 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
         .divide => simpleInstruction("DIVIDE", offset, io),
         .not => simpleInstruction("NOT", offset, io),
         .equal => simpleInstruction("EQUAL", offset, io),
+        .define_global => constantInstruction(chunk, "DEFINE_GLOBAL", offset, io),
+        .define_global_long => constantLongInstruction(chunk, "DEFINE_GLOBAL_LONG", offset, io),
         .greater => simpleInstruction("GREATER", offset, io),
         .less => simpleInstruction("LESS", offset, io),
         _ => blk: {
-            io.print("{s: <16} Error: invalid opcode, got {}\n", .{ "?", instruction });
+            io.print("{s: <18} Error: invalid opcode, got {}\n", .{ "?", instruction });
             break :blk offset + 1;
         },
     };
@@ -61,7 +63,7 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
 
 fn constantInstruction(chunk: *const Chunk, name: []const u8, offset: usize, io: *IoHandler) usize {
     const index = chunk.readByte(offset + 1);
-    io.print("{s: <16} {:0>4} '", .{ name, index });
+    io.print("{s: <18} {:0>4} '", .{ name, index });
     extractConstant(chunk, index).print(io);
     io.print("'\n", .{});
 
@@ -74,7 +76,7 @@ fn constantLongInstruction(chunk: *const Chunk, name: []const u8, offset: usize,
     const right = chunk.readByte(offset + 3);
     const index: usize = (left << 16) | (middle << 8) | right;
 
-    io.print("{s: <16} {:0>4} '", .{ name, index });
+    io.print("{s: <18} {:0>4} '", .{ name, index });
     extractConstant(chunk, index).print(io);
     io.print("'\n", .{});
 
