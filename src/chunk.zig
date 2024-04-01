@@ -30,6 +30,8 @@ pub const OpCode = enum(u8) {
     pop,
     get_global,
     get_global_long,
+    set_global,
+    set_global_long,
     define_global,
     define_global_long,
     equal,

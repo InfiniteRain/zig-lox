@@ -199,6 +199,16 @@ pub const VM = struct {
 
                     self.stack.push(value);
                 },
+                .set_global, .set_global_long => {
+                    const constant_value = if (instruction == .set_global) self.readConstant() else self.readConstantLong();
+                    const name = constant_value.obj.as(.string);
+
+                    if (try self.globals.set(name, self.stack.peek(0))) {
+                        _ = self.globals.delete(name);
+                        self.runtimeError("Undefined variable '{s}'.", .{name.chars});
+                        return error.RuntimeError;
+                    }
+                },
                 .define_global, .define_global_long => {
                     const constant_value = if (instruction == .define_global) self.readConstant() else self.readConstantLong();
                     const name = constant_value.obj.as(.string);
