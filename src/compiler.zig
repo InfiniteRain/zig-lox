@@ -173,21 +173,42 @@ pub const Compiler = struct {
         return true;
     }
 
-    fn emitByte(self: *Self, byte: u8) CompilerError!void {
-        try self.currentChunk().writeByte(byte, self.previous.line);
+    fn emitByte(self: *Self, byte: anytype) CompilerError!void {
+        const ByteType = @TypeOf(byte);
+
+        switch (ByteType) {
+            @TypeOf(.enum_literal), OpCode => {
+                if (ByteType == @TypeOf(.enum_literal) and !@hasField(OpCode, @tagName(byte))) {
+                    @compileError("expected valid OpCode");
+                }
+
+                try self.currentChunk().writeOpCode(byte, self.previous.line);
+            },
+            comptime_int, u8 => {
+                try self.currentChunk().writeByte(byte, self.previous.line);
+            },
+            else => {
+                @compileError("expected byte to be of type OpCode or u8, found" ++ @typeName(ByteType));
+            },
+        }
     }
 
-    fn emitOpCodes(self: *Self, op_code1: OpCode, op_code2: OpCode) CompilerError!void {
-        try self.emitOpCode(op_code1);
-        try self.emitOpCode(op_code2);
-    }
+    fn emitBytes(self: *Self, bytes: anytype) CompilerError!void {
+        const BytesType = @TypeOf(bytes);
+        const bytes_type_info = @typeInfo(BytesType);
 
-    fn emitOpCode(self: *Self, op_code: OpCode) CompilerError!void {
-        try self.currentChunk().writeOpCode(op_code, self.previous.line);
+        if (bytes_type_info != .Struct or !bytes_type_info.Struct.is_tuple) {
+            @compileError("expected tuple, found " ++ @typeName(BytesType));
+        }
+
+        inline for (bytes_type_info.Struct.fields) |field| {
+            const union_index = comptime std.fmt.parseInt(usize, field.name, 10) catch unreachable;
+            try self.emitByte(bytes[union_index]);
+        }
     }
 
     fn emitReturn(self: *Self) CompilerError!void {
-        try self.emitOpCode(.ret);
+        try self.emitByte(.ret);
     }
 
     fn emitConstant(self: *Self, value: Value) CompilerError!void {
@@ -212,25 +233,25 @@ pub const Compiler = struct {
         try self.parsePrecedence(@enumFromInt(@intFromEnum(rule.precedence) + 1));
 
         switch (operator_type) {
-            .plus => try self.emitOpCode(.add),
-            .minus => try self.emitOpCode(.subtract),
-            .star => try self.emitOpCode(.multiply),
-            .slash => try self.emitOpCode(.divide),
-            .bang_equal => try self.emitOpCodes(.equal, .not),
-            .equal_equal => try self.emitOpCode(.equal),
-            .greater => try self.emitOpCode(.greater),
-            .greater_equal => try self.emitOpCodes(.less, .not),
-            .less => try self.emitOpCode(.less),
-            .less_equal => try self.emitOpCodes(.greater, .not),
+            .plus => try self.emitByte(.add),
+            .minus => try self.emitByte(.subtract),
+            .star => try self.emitByte(.multiply),
+            .slash => try self.emitByte(.divide),
+            .bang_equal => try self.emitBytes(.{ .equal, .not }),
+            .equal_equal => try self.emitByte(.equal),
+            .greater => try self.emitByte(.greater),
+            .greater_equal => try self.emitBytes(.{ .less, .not }),
+            .less => try self.emitByte(.less),
+            .less_equal => try self.emitBytes(.{ .greater, .not }),
             else => unreachable,
         }
     }
 
     fn literal(self: *Self) CompilerError!void {
         switch (self.previous.type) {
-            .false => try self.emitOpCode(.false),
-            .nil => try self.emitOpCode(.nil),
-            .true => try self.emitOpCode(.true),
+            .false => try self.emitByte(.false),
+            .nil => try self.emitByte(.nil),
+            .true => try self.emitByte(.true),
             else => unreachable,
         }
     }
@@ -245,7 +266,7 @@ pub const Compiler = struct {
         if (self.match(.equal)) {
             try self.expression();
         } else {
-            try self.emitOpCode(.nil);
+            try self.emitByte(.nil);
         }
 
         self.consume(.semicolon, "Expect ';' after variable declaration.");
@@ -255,13 +276,13 @@ pub const Compiler = struct {
     fn expressionStatement(self: *Self) CompilerError!void {
         try self.expression();
         self.consume(.semicolon, "Expect ';' after expression.");
-        try self.emitOpCode(.pop);
+        try self.emitByte(.pop);
     }
 
     fn printStatement(self: *Self) CompilerError!void {
         try self.expression();
         self.consume(.semicolon, "Expect ';' after value.");
-        try self.emitOpCode(.print);
+        try self.emitByte(.print);
     }
 
     fn synchronize(self: *Self) void {
@@ -327,9 +348,9 @@ pub const Compiler = struct {
         const arg = try self.identifierConstant(&name);
 
         if (arg < 0xFF) {
-            try self.emitOpCode(.get_global);
+            try self.emitByte(.get_global);
         } else {
-            try self.emitOpCode(.get_global_long);
+            try self.emitByte(.get_global_long);
         }
 
         try self.emitConstantIndex(arg);
@@ -345,8 +366,8 @@ pub const Compiler = struct {
         try self.parsePrecedence(.unary);
 
         switch (operator_type) {
-            .bang => try self.emitOpCode(.not),
-            .minus => try self.emitOpCode(.negate),
+            .bang => try self.emitByte(.not),
+            .minus => try self.emitByte(.negate),
             else => return,
         }
     }
@@ -383,9 +404,9 @@ pub const Compiler = struct {
 
     fn defineVariable(self: *Self, global: usize) CompilerError!void {
         if (global < 0xFF) {
-            try self.emitOpCode(.define_global);
+            try self.emitByte(.define_global);
         } else {
-            try self.emitOpCode(.define_global_long);
+            try self.emitByte(.define_global_long);
         }
 
         try self.emitConstantIndex(global);
