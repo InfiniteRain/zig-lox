@@ -45,6 +45,11 @@ const CompilerError = error{OutOfMemory};
 
 const ParseFn = *const fn (*Compiler, bool) CompilerError!void;
 
+pub const Local = struct {
+    name: Token,
+    depth: usize,
+};
+
 pub const Compiler = struct {
     const Self = @This();
     const rules = blk: {
@@ -91,6 +96,7 @@ pub const Compiler = struct {
         array.set(.eof, .{});
         break :blk array;
     };
+    const u8_count = std.math.maxInt(u8) + 1;
 
     allocator: Allocator,
     scanner: Scanner,
@@ -101,6 +107,10 @@ pub const Compiler = struct {
     had_error: bool,
     panic_mode: bool,
     io: *IoHandler,
+
+    locals: [u8_count]Local,
+    local_count: usize,
+    scope_depth: usize,
 
     pub fn init(allocator: Allocator, vm: *VM, io: *IoHandler) !Self {
         return .{
@@ -113,6 +123,10 @@ pub const Compiler = struct {
             .had_error = false,
             .panic_mode = false,
             .io = io,
+
+            .locals = undefined,
+            .local_count = 0,
+            .scope_depth = 0,
         };
     }
 
@@ -227,6 +241,14 @@ pub const Compiler = struct {
         }
     }
 
+    fn beginScope(self: *Self) void {
+        self.scope_depth += 1;
+    }
+
+    fn endScope(self: *Self) void {
+        self.scope_depth -= 1;
+    }
+
     fn binary(self: *Self, canAssign: bool) CompilerError!void {
         _ = canAssign;
 
@@ -262,6 +284,14 @@ pub const Compiler = struct {
 
     fn expression(self: *Self) CompilerError!void {
         try self.parsePrecedence(.assignment);
+    }
+
+    fn block(self: *Self) CompilerError!void {
+        while (!self.check(.right_brace) and !self.check(.eof)) {
+            try self.declaration();
+        }
+
+        self.consume(.right_brace, "Expect '}' after block.");
     }
 
     fn varDeclaration(self: *Self) CompilerError!void {
@@ -321,6 +351,10 @@ pub const Compiler = struct {
     fn statement(self: *Self) CompilerError!void {
         if (self.match(.print)) {
             try self.printStatement();
+        } else if (self.match(.left_brace)) {
+            self.beginScope();
+            try self.block();
+            self.endScope();
         } else {
             try self.expressionStatement();
         }
