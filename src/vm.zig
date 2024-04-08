@@ -41,7 +41,7 @@ pub const BinaryOperation = enum {
 
 const Stack = struct {
     const Self = @This();
-    const max_stack = 256;
+    const max_stack = 2048;
 
     allocator: Allocator,
     stack: []Value,
@@ -187,12 +187,12 @@ pub const VM = struct {
                 .pop => {
                     _ = self.stack.pop();
                 },
-                .get_local => {
-                    const slot = self.readByte();
+                .get_local, .get_local_long => {
+                    const slot = if (instruction == .get_local) self.readByte() else self.readU24();
                     self.stack.push(self.stack.stack[slot]);
                 },
-                .set_local => {
-                    const slot = self.readByte();
+                .set_local, .set_local_long => {
+                    const slot = if (instruction == .set_local) self.readByte() else self.readU24();
                     self.stack.stack[slot] = self.stack.peek(0);
                 },
                 .get_global, .get_global_long => {
@@ -281,16 +281,18 @@ pub const VM = struct {
     }
 
     pub fn readConstantLong(self: *Self) Value {
-        const left: u24 = self.readByte();
-        const middle: u24 = self.readByte();
-        const right = self.readByte();
-        const index: usize = (left << 16) | (middle << 8) | right;
-
-        return self.chunk.getConstant(index);
+        return self.chunk.getConstant(@intCast(self.readU24()));
     }
 
     fn readOpCode(self: *Self) OpCode {
         return @as(OpCode, @enumFromInt(self.readByte()));
+    }
+
+    fn readU24(self: *Self) u24 {
+        const left: u24 = self.readByte();
+        const middle: u24 = self.readByte();
+        const right = self.readByte();
+        return (left << 16) | (middle << 8) | right;
     }
 
     fn readByte(self: *Self) u8 {

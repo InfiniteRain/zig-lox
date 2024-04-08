@@ -20,6 +20,8 @@ const object_package = @import("object.zig");
 const Obj = object_package.Obj;
 const vm_package = @import("vm.zig");
 const VM = vm_package.VM;
+const dynamic_array_package = @import("dynamic_array.zig");
+const DynamicArray = dynamic_array_package.DynamicArray;
 
 const MarkConstOption = union(enum) {
     no_change,
@@ -104,7 +106,7 @@ pub const Compiler = struct {
         array.set(.eof, .{});
         break :blk array;
     };
-    const u8_count = std.math.maxInt(u8) + 1;
+    const u24_count = std.math.maxInt(u24) + 1;
 
     allocator: Allocator,
     scanner: Scanner,
@@ -116,7 +118,7 @@ pub const Compiler = struct {
     panic_mode: bool,
     io: *IoHandler,
 
-    locals: [u8_count]Local,
+    locals: DynamicArray(Local),
     local_count: usize,
     scope_depth: usize,
 
@@ -132,17 +134,20 @@ pub const Compiler = struct {
             .panic_mode = false,
             .io = io,
 
-            .locals = undefined,
-            .local_count = 0,
-            .scope_depth = 0,
+            .locals = try DynamicArray(Local).init(allocator),
+            .local_count = undefined,
+            .scope_depth = undefined,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        _ = self;
+        self.locals.deinit();
     }
 
     pub fn compile(self: *Self, source: []const u8, chunk: *Chunk) CompilerError!bool {
+        self.local_count = 0;
+        self.scope_depth = 0;
+
         self.scanner = Scanner.init(source, self.io);
         self.compiling_chunk = chunk;
         self.advance();
@@ -256,7 +261,7 @@ pub const Compiler = struct {
     fn endScope(self: *Self) CompilerError!void {
         self.scope_depth -= 1;
 
-        while (self.local_count > 0 and self.locals[self.local_count - 1].depth > self.scope_depth) {
+        while (self.local_count > 0 and self.locals.data[self.local_count - 1].depth > self.scope_depth) {
             try self.emitByte(.pop);
             self.local_count -= 1;
         }
@@ -420,8 +425,8 @@ pub const Compiler = struct {
 
         if (arg) |result| {
             constant_index = result[0];
-            get_op = .get_local;
-            set_op = .set_local;
+            get_op = if (constant_index < 0xFF) .get_local else .get_local_long;
+            set_op = if (constant_index < 0xFF) .set_local else .set_local_long;
             is_const = result[1];
         } else {
             const result = try self.identifierConstant(&name, .no_change);
@@ -509,7 +514,7 @@ pub const Compiler = struct {
             var i: usize = self.local_count - 1;
 
             while (i >= 0) : (i -= 1) {
-                const local = &self.locals[i];
+                const local = &self.locals.data[i];
 
                 if (name.lexemeEquals(&local.name)) {
                     if (!local.initialized) {
@@ -528,21 +533,25 @@ pub const Compiler = struct {
         return null;
     }
 
-    fn addLocal(self: *Self, is_const: bool, name: Token) void {
-        if (self.local_count == u8_count) {
+    fn addLocal(self: *Self, is_const: bool, name: Token) CompilerError!void {
+        if (self.local_count == u24_count) {
             self.err("Too many local variables in a function.");
             return;
         }
 
-        var local = &self.locals[self.local_count];
-        local.name = name;
-        local.depth = self.scope_depth;
-        local.initialized = false;
-        local.is_const = is_const;
+        const local = Local{
+            .name = name,
+            .depth = self.scope_depth,
+            .initialized = false,
+            .is_const = is_const,
+        };
+
+        try self.locals.push(local);
+
         self.local_count += 1;
     }
 
-    fn declareVariable(self: *Self, is_const: bool) void {
+    fn declareVariable(self: *Self, is_const: bool) CompilerError!void {
         if (self.scope_depth == 0) {
             return;
         }
@@ -553,7 +562,7 @@ pub const Compiler = struct {
             var i: usize = self.local_count - 1;
 
             while (i >= 0) : (i -= 1) {
-                const local = &self.locals[i];
+                const local = &self.locals.data[i];
 
                 if (local.initialized and self.scope_depth > local.depth) {
                     break;
@@ -569,12 +578,12 @@ pub const Compiler = struct {
             }
         }
 
-        self.addLocal(is_const, name.*);
+        try self.addLocal(is_const, name.*);
     }
 
     fn parseVariable(self: *Self, is_const: bool, errorMessage: []const u8) CompilerError!usize {
         self.consume(.identifier, errorMessage);
-        self.declareVariable(is_const);
+        try self.declareVariable(is_const);
 
         if (self.scope_depth > 0) {
             return 0;
@@ -584,7 +593,7 @@ pub const Compiler = struct {
     }
 
     fn markInitialized(self: *Self) void {
-        self.locals[self.local_count - 1].initialized = true;
+        self.locals.data[self.local_count - 1].initialized = true;
     }
 
     fn defineVariable(self: *Self, global: usize) CompilerError!void {

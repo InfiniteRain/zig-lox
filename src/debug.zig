@@ -51,7 +51,9 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
         .not => simpleInstruction("NOT", offset, io),
         .equal => simpleInstruction("EQUAL", offset, io),
         .get_local => byteInstruction("GET_LOCAL", chunk, offset, io),
+        .get_local_long => threeByteInstruction("GET_LOCAL_LONG", chunk, offset, io),
         .set_local => byteInstruction("SET_LOCAL", chunk, offset, io),
+        .set_local_long => threeByteInstruction("SET_LOCAL_LONG", chunk, offset, io),
         .get_global => constantInstruction(chunk, "GET_GLOBAL", offset, io),
         .get_global_long => constantLongInstruction(chunk, "GET_GLOBAL_LONG", offset, io),
         .set_global => constantInstruction(chunk, "SET_GLOBAL", offset, io),
@@ -98,6 +100,15 @@ fn byteInstruction(name: []const u8, chunk: *const Chunk, offset: usize, io: *Io
     const slot = chunk.code.data[offset + 1];
     io.print("{s: <18} {:0>4}\n", .{ name, slot });
     return offset + 2;
+}
+
+fn threeByteInstruction(name: []const u8, chunk: *const Chunk, offset: usize, io: *IoHandler) usize {
+    const left: u24 = @intCast(chunk.code.data[offset + 1]);
+    const middle: u24 = @intCast(chunk.code.data[offset + 2]);
+    const right: u24 = @intCast(chunk.code.data[offset + 3]);
+
+    io.print("{s: <18} {:0>4}\n", .{ name, (left << 16) | (middle << 8) | right });
+    return offset + 4;
 }
 
 fn extractConstant(chunk: *const Chunk, index: usize) Value {
