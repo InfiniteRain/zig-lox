@@ -1,6 +1,6 @@
 const std = @import("std");
-const parseFloat = std.fmt.parseFloat;
 const Allocator = std.mem.Allocator;
+const parseFloat = std.fmt.parseFloat;
 const EnumArray = std.EnumArray;
 const scanner_package = @import("scanner.zig");
 const Scanner = scanner_package.Scanner;
@@ -245,8 +245,13 @@ pub const Compiler = struct {
         self.scope_depth += 1;
     }
 
-    fn endScope(self: *Self) void {
+    fn endScope(self: *Self) CompilerError!void {
         self.scope_depth -= 1;
+
+        while (self.local_count > 0 and self.locals[self.local_count - 1].depth > self.scope_depth) {
+            try self.emitByte(.pop);
+            self.local_count -= 1;
+        }
     }
 
     fn binary(self: *Self, canAssign: bool) CompilerError!void {
@@ -354,7 +359,7 @@ pub const Compiler = struct {
         } else if (self.match(.left_brace)) {
             self.beginScope();
             try self.block();
-            self.endScope();
+            try self.endScope();
         } else {
             try self.expressionStatement();
         }
@@ -451,12 +456,64 @@ pub const Compiler = struct {
         });
     }
 
+    fn addLocal(self: *Self, name: Token) void {
+        if (self.local_count == u8_count) {
+            self.err("Too many local variables in a function.");
+            return;
+        }
+
+        var local = self.locals[self.local_count];
+        local.name = name;
+        local.depth = self.scope_depth;
+        self.local_count += 1;
+    }
+
+    fn declareVariable(self: *Self) void {
+        if (self.scope_depth == 0) {
+            return;
+        }
+
+        const name = &self.previous;
+
+        if (self.local_count > 0) {
+            var i: usize = self.local_count - 1;
+
+            while (i >= 0) : (i -= 1) {
+                const local = &self.locals[i];
+
+                if (local.depth != -1 and self.scope_depth > local.depth) {
+                    break;
+                }
+
+                if (name.lexemeEquals(&local.name)) {
+                    self.err("Already a variable with this name in this scope.");
+                }
+
+                if (i <= 0) {
+                    break;
+                }
+            }
+        }
+
+        self.addLocal(name.*);
+    }
+
     fn parseVariable(self: *Self, errorMessage: []const u8) CompilerError!usize {
         self.consume(.identifier, errorMessage);
+        self.declareVariable();
+
+        if (self.scope_depth > 0) {
+            return 0;
+        }
+
         return try self.identifierConstant(&self.previous);
     }
 
     fn defineVariable(self: *Self, global: usize) CompilerError!void {
+        if (self.scope_depth > 0) {
+            return;
+        }
+
         if (global < 0xFF) {
             try self.emitByte(.define_global);
         } else {

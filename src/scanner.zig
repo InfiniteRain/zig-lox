@@ -51,9 +51,15 @@ pub const TokenType = enum {
 };
 
 pub const Token = struct {
+    const Self = @This();
+
     type: TokenType,
     lexeme: []const u8,
     line: u64,
+
+    pub fn lexemeEquals(self: *Self, other: *Self) bool {
+        return mem.eql(u8, self.lexeme, other.lexeme);
+    }
 };
 
 pub const Scanner = struct {
