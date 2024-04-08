@@ -48,6 +48,7 @@ const ParseFn = *const fn (*Compiler, bool) CompilerError!void;
 pub const Local = struct {
     name: Token,
     depth: usize,
+    initialized: bool,
 };
 
 pub const Compiler = struct {
@@ -475,6 +476,10 @@ pub const Compiler = struct {
                 const local = &self.locals[i];
 
                 if (name.lexemeEquals(&local.name)) {
+                    if (!local.initialized) {
+                        self.err("Can't read local variable in its own initializer.");
+                    }
+
                     return i;
                 }
 
@@ -496,6 +501,7 @@ pub const Compiler = struct {
         var local = &self.locals[self.local_count];
         local.name = name;
         local.depth = self.scope_depth;
+        local.initialized = false;
         self.local_count += 1;
     }
 
@@ -512,7 +518,7 @@ pub const Compiler = struct {
             while (i >= 0) : (i -= 1) {
                 const local = &self.locals[i];
 
-                if (local.depth != -1 and self.scope_depth > local.depth) {
+                if (local.initialized and self.scope_depth > local.depth) {
                     break;
                 }
 
@@ -540,8 +546,13 @@ pub const Compiler = struct {
         return try self.identifierConstant(&self.previous);
     }
 
+    fn markInitialized(self: *Self) void {
+        self.locals[self.local_count - 1].initialized = true;
+    }
+
     fn defineVariable(self: *Self, global: usize) CompilerError!void {
         if (self.scope_depth > 0) {
+            self.markInitialized();
             return;
         }
 
