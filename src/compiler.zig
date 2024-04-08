@@ -394,18 +394,29 @@ pub const Compiler = struct {
     }
 
     fn namedVariable(self: *Self, name: Token, canAssign: bool) CompilerError!void {
-        const arg = try self.identifierConstant(&name);
-        const get_global_byte: OpCode = if (arg < 0xFF) .get_global else .get_global_long;
-        const set_global_byte: OpCode = if (arg < 0xFF) .set_global else .set_global_long;
+        const arg = self.resolveLocal(&name);
+        var constant_index: usize = undefined;
+        var get_op: OpCode = undefined;
+        var set_op: OpCode = undefined;
+
+        if (arg) |i| {
+            constant_index = i;
+            get_op = .get_local;
+            set_op = .set_local;
+        } else {
+            constant_index = try self.identifierConstant(&name);
+            get_op = if (constant_index < 0xFF) .get_global else .get_global_long;
+            set_op = if (constant_index < 0xFF) .set_global else .set_global_long;
+        }
 
         if (canAssign and self.match(.equal)) {
             try self.expression();
-            try self.emitByte(set_global_byte);
+            try self.emitByte(set_op);
         } else {
-            try self.emitByte(get_global_byte);
+            try self.emitByte(get_op);
         }
 
-        try self.emitConstantIndex(arg);
+        try self.emitConstantIndex(constant_index);
     }
 
     fn variable(self: *Self, canAssign: bool) CompilerError!void {
@@ -456,13 +467,33 @@ pub const Compiler = struct {
         });
     }
 
+    fn resolveLocal(self: *Self, name: *const Token) ?usize {
+        if (self.local_count > 0) {
+            var i: usize = self.local_count - 1;
+
+            while (i >= 0) : (i -= 1) {
+                const local = &self.locals[i];
+
+                if (name.lexemeEquals(&local.name)) {
+                    return i;
+                }
+
+                if (i <= 0) {
+                    break;
+                }
+            }
+        }
+
+        return null;
+    }
+
     fn addLocal(self: *Self, name: Token) void {
         if (self.local_count == u8_count) {
             self.err("Too many local variables in a function.");
             return;
         }
 
-        var local = self.locals[self.local_count];
+        var local = &self.locals[self.local_count];
         local.name = name;
         local.depth = self.scope_depth;
         self.local_count += 1;

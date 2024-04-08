@@ -50,6 +50,8 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
         .divide => simpleInstruction("DIVIDE", offset, io),
         .not => simpleInstruction("NOT", offset, io),
         .equal => simpleInstruction("EQUAL", offset, io),
+        .get_local => byteInstruction("GET_LOCAL", chunk, offset, io),
+        .set_local => byteInstruction("SET_LOCAL", chunk, offset, io),
         .get_global => constantInstruction(chunk, "GET_GLOBAL", offset, io),
         .get_global_long => constantLongInstruction(chunk, "GET_GLOBAL_LONG", offset, io),
         .set_global => constantInstruction(chunk, "SET_GLOBAL", offset, io),
@@ -90,6 +92,12 @@ fn constantLongInstruction(chunk: *const Chunk, name: []const u8, offset: usize,
 fn simpleInstruction(name: []const u8, offset: usize, io: *IoHandler) usize {
     io.print("{s}\n", .{name});
     return offset + 1;
+}
+
+fn byteInstruction(name: []const u8, chunk: *const Chunk, offset: usize, io: *IoHandler) usize {
+    const slot = chunk.code.data[offset + 1];
+    io.print("{s: <18} {:0>4}\n", .{ name, slot });
+    return offset + 2;
 }
 
 fn extractConstant(chunk: *const Chunk, index: usize) Value {

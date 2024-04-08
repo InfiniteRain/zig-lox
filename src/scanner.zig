@@ -57,7 +57,7 @@ pub const Token = struct {
     lexeme: []const u8,
     line: u64,
 
-    pub fn lexemeEquals(self: *Self, other: *Self) bool {
+    pub fn lexemeEquals(self: *const Self, other: *const Self) bool {
         return mem.eql(u8, self.lexeme, other.lexeme);
     }
 };

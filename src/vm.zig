@@ -187,6 +187,14 @@ pub const VM = struct {
                 .pop => {
                     _ = self.stack.pop();
                 },
+                .get_local => {
+                    const slot = self.readByte();
+                    self.stack.push(self.stack.stack[slot]);
+                },
+                .set_local => {
+                    const slot = self.readByte();
+                    self.stack.stack[slot] = self.stack.peek(0);
+                },
                 .get_global, .get_global_long => {
                     const constant_value = if (instruction == .get_global) self.readConstant() else self.readConstantLong();
                     const name = constant_value.obj.as(.string);
