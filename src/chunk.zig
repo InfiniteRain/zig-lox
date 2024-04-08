@@ -15,6 +15,10 @@ const value_package = @import("value.zig");
 const Value = value_package.Value;
 const rle_array_package = @import("rle_array.zig");
 const RleArray = rle_array_package.RleArray;
+const table_package = @import("table.zig");
+const Table = table_package.Table;
+const object_packge = @import("object.zig");
+const Obj = object_packge.Obj;
 
 const OpCodeError = error{NotOperand};
 
@@ -52,6 +56,7 @@ pub const Chunk = struct {
 
     code: DynamicArray(u8),
     constants: DynamicArray(Value),
+    const_vars: Table,
     lines: RleArray(u64),
 
     pub fn init(allocator: Allocator) !Self {
@@ -62,11 +67,15 @@ pub const Chunk = struct {
         errdefer constants.deinit();
 
         const lines = try RleArray(u64).init(allocator);
+        errdefer lines.deinit();
+
+        const const_vars = try Table.init(allocator);
 
         return .{
             .code = code,
             .constants = constants,
             .lines = lines,
+            .const_vars = const_vars,
         };
     }
 
@@ -74,6 +83,7 @@ pub const Chunk = struct {
         self.code.deinit();
         self.constants.deinit();
         self.lines.deinit();
+        self.const_vars.deinit();
     }
 
     pub fn writeOpCode(self: *Self, op_code: OpCode, line: u64) !void {
@@ -129,6 +139,16 @@ pub const Chunk = struct {
         assert(index < self.constants.count);
 
         return self.constants.data[index];
+    }
+
+    pub fn setVarConstness(self: *Self, name: *Obj.String, is_const: bool) !void {
+        _ = try self.const_vars.set(name, .{ .bool = is_const });
+    }
+
+    pub fn getVarConstness(self: *Self, name: *Obj.String) bool {
+        var value: Value = undefined;
+        const is_found = self.const_vars.get(name, &value);
+        return if (is_found) value.bool else false;
     }
 };
 

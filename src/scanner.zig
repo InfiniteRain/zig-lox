@@ -31,6 +31,7 @@ pub const TokenType = enum {
 
     _and,
     class,
+    _const,
     _else,
     false,
     _for,
@@ -240,7 +241,16 @@ pub const Scanner = struct {
     fn identifierType(self: *Self) TokenType {
         return switch (self.source[self.start]) {
             'a' => self.checkKeyword(1, "nd", ._and),
-            'c' => self.checkKeyword(1, "lass", .class),
+            'c' => {
+                return if (self.current - self.start > 1)
+                    switch (self.source[self.start + 1]) {
+                        'l' => self.checkKeyword(2, "ass", .class),
+                        'o' => self.checkKeyword(2, "nst", ._const),
+                        else => .identifier,
+                    }
+                else
+                    .identifier;
+            },
             'e' => self.checkKeyword(1, "lse", ._else),
             'f' => {
                 return if (self.current - self.start > 1)

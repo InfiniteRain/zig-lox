@@ -21,6 +21,11 @@ const Obj = object_package.Obj;
 const vm_package = @import("vm.zig");
 const VM = vm_package.VM;
 
+const MarkConstOption = union(enum) {
+    no_change,
+    change: bool,
+};
+
 const Precedence = enum(u8) {
     none,
     assignment,
@@ -49,6 +54,7 @@ pub const Local = struct {
     name: Token,
     depth: usize,
     initialized: bool,
+    is_const: bool,
 };
 
 pub const Compiler = struct {
@@ -60,6 +66,7 @@ pub const Compiler = struct {
         array.set(.left_brace, .{});
         array.set(.right_brace, .{});
         array.set(.comma, .{});
+        array.set(._const, .{});
         array.set(.dot, .{});
         array.set(.minus, .{ .prefix = Self.unary, .infix = Self.binary, .precedence = .term });
         array.set(.plus, .{ .infix = Self.binary, .precedence = .term });
@@ -301,7 +308,7 @@ pub const Compiler = struct {
     }
 
     fn varDeclaration(self: *Self) CompilerError!void {
-        const global = try self.parseVariable("Expect variable name");
+        const global = try self.parseVariable(false, "Expect variable name.");
 
         if (self.match(.equal)) {
             try self.expression();
@@ -310,6 +317,14 @@ pub const Compiler = struct {
         }
 
         self.consume(.semicolon, "Expect ';' after variable declaration.");
+        try self.defineVariable(global);
+    }
+
+    fn constDeclaration(self: *Self) CompilerError!void {
+        const global = try self.parseVariable(true, "Expect constant name.");
+        self.consume(.equal, "Expect constant to be assigned a value.");
+        try self.expression();
+        self.consume(.semicolon, "Expect ';' after constant declaration.");
         try self.defineVariable(global);
     }
 
@@ -345,6 +360,8 @@ pub const Compiler = struct {
     fn declaration(self: *Self) CompilerError!void {
         if (self.match(._var)) {
             try self.varDeclaration();
+        } else if (self.match(._const)) {
+            try self.constDeclaration();
         } else {
             try self.statement();
         }
@@ -399,18 +416,27 @@ pub const Compiler = struct {
         var constant_index: usize = undefined;
         var get_op: OpCode = undefined;
         var set_op: OpCode = undefined;
+        var is_const = false;
 
-        if (arg) |i| {
-            constant_index = i;
+        if (arg) |result| {
+            constant_index = result[0];
             get_op = .get_local;
             set_op = .set_local;
+            is_const = result[1];
         } else {
-            constant_index = try self.identifierConstant(&name);
+            const result = try self.identifierConstant(&name, .no_change);
+
+            constant_index = result[0];
             get_op = if (constant_index < 0xFF) .get_global else .get_global_long;
             set_op = if (constant_index < 0xFF) .set_global else .set_global_long;
+            is_const = result[1];
         }
 
         if (canAssign and self.match(.equal)) {
+            if (is_const) {
+                self.err("Can't reassign a constant.");
+            }
+
             try self.expression();
             try self.emitByte(set_op);
         } else {
@@ -462,13 +488,23 @@ pub const Compiler = struct {
         }
     }
 
-    fn identifierConstant(self: *Self, token: *const Token) CompilerError!usize {
-        return try self.currentChunk().addConstant(.{
-            .obj = &(try Obj.String.fromBufAlloc(self.allocator, token.lexeme, self.vm)).obj,
-        });
+    fn identifierConstant(self: *Self, token: *const Token, const_option: MarkConstOption) CompilerError!struct { usize, bool } {
+        const string_obj = try Obj.String.fromBufAlloc(self.allocator, token.lexeme, self.vm);
+
+        switch (const_option) {
+            .change => |is_const| try self.currentChunk().setVarConstness(string_obj, is_const),
+            .no_change => {},
+        }
+
+        return .{
+            try self.currentChunk().addConstant(.{
+                .obj = &string_obj.obj,
+            }),
+            self.currentChunk().getVarConstness(string_obj),
+        };
     }
 
-    fn resolveLocal(self: *Self, name: *const Token) ?usize {
+    fn resolveLocal(self: *Self, name: *const Token) ?struct { usize, bool } {
         if (self.local_count > 0) {
             var i: usize = self.local_count - 1;
 
@@ -480,7 +516,7 @@ pub const Compiler = struct {
                         self.err("Can't read local variable in its own initializer.");
                     }
 
-                    return i;
+                    return .{ i, local.is_const };
                 }
 
                 if (i <= 0) {
@@ -492,7 +528,7 @@ pub const Compiler = struct {
         return null;
     }
 
-    fn addLocal(self: *Self, name: Token) void {
+    fn addLocal(self: *Self, is_const: bool, name: Token) void {
         if (self.local_count == u8_count) {
             self.err("Too many local variables in a function.");
             return;
@@ -502,10 +538,11 @@ pub const Compiler = struct {
         local.name = name;
         local.depth = self.scope_depth;
         local.initialized = false;
+        local.is_const = is_const;
         self.local_count += 1;
     }
 
-    fn declareVariable(self: *Self) void {
+    fn declareVariable(self: *Self, is_const: bool) void {
         if (self.scope_depth == 0) {
             return;
         }
@@ -532,18 +569,18 @@ pub const Compiler = struct {
             }
         }
 
-        self.addLocal(name.*);
+        self.addLocal(is_const, name.*);
     }
 
-    fn parseVariable(self: *Self, errorMessage: []const u8) CompilerError!usize {
+    fn parseVariable(self: *Self, is_const: bool, errorMessage: []const u8) CompilerError!usize {
         self.consume(.identifier, errorMessage);
-        self.declareVariable();
+        self.declareVariable(is_const);
 
         if (self.scope_depth > 0) {
             return 0;
         }
 
-        return try self.identifierConstant(&self.previous);
+        return (try self.identifierConstant(&self.previous, .{ .change = is_const }))[0];
     }
 
     fn markInitialized(self: *Self) void {
