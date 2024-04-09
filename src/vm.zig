@@ -188,11 +188,11 @@ pub const VM = struct {
                     _ = self.stack.pop();
                 },
                 .get_local, .get_local_long => {
-                    const slot = if (instruction == .get_local) self.readByte() else self.readU24();
+                    const slot = if (instruction == .get_local) self.readU8() else self.readU24();
                     self.stack.push(self.stack.stack[slot]);
                 },
                 .set_local, .set_local_long => {
-                    const slot = if (instruction == .set_local) self.readByte() else self.readU24();
+                    const slot = if (instruction == .set_local) self.readU8() else self.readU24();
                     self.stack.stack[slot] = self.stack.peek(0);
                 },
                 .get_global, .get_global_long => {
@@ -235,6 +235,17 @@ pub const VM = struct {
                 },
                 .less => try self.binaryOperation(.less),
                 .greater => try self.binaryOperation(.greater),
+                .jump => {
+                    const offset = self.readU16();
+                    self.ip += offset;
+                },
+                .jump_if_false => {
+                    const offset = self.readU16();
+
+                    if (self.stack.peek(0).isFalsey()) {
+                        self.ip += offset;
+                    }
+                },
                 .ret => {
                     return;
                 },
@@ -277,7 +288,7 @@ pub const VM = struct {
     }
 
     pub fn readConstant(self: *Self) Value {
-        return self.chunk.getConstant(self.readByte());
+        return self.chunk.getConstant(self.readU8());
     }
 
     pub fn readConstantLong(self: *Self) Value {
@@ -285,17 +296,23 @@ pub const VM = struct {
     }
 
     fn readOpCode(self: *Self) OpCode {
-        return @as(OpCode, @enumFromInt(self.readByte()));
+        return @as(OpCode, @enumFromInt(self.readU8()));
     }
 
     fn readU24(self: *Self) u24 {
-        const left: u24 = self.readByte();
-        const middle: u24 = self.readByte();
-        const right = self.readByte();
+        const left: u24 = self.readU8();
+        const middle: u24 = self.readU8();
+        const right = self.readU8();
         return (left << 16) | (middle << 8) | right;
     }
 
-    fn readByte(self: *Self) u8 {
+    fn readU16(self: *Self) u16 {
+        const left: u16 = self.readU8();
+        const right = self.readU8();
+        return (left << 8) | right;
+    }
+
+    fn readU8(self: *Self) u8 {
         assert(self.getOffset() < self.chunk.code.count);
 
         const byte = self.ip[0];

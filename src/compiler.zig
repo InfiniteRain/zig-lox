@@ -107,6 +107,7 @@ pub const Compiler = struct {
         break :blk array;
     };
     const u24_count = std.math.maxInt(u24) + 1;
+    const u16_max = std.math.maxInt(u16);
 
     allocator: Allocator,
     scanner: Scanner,
@@ -234,6 +235,13 @@ pub const Compiler = struct {
         }
     }
 
+    fn emitJump(self: *Self, byte: anytype) CompilerError!u16 {
+        try self.emitByte(byte);
+        try self.emitByte(0xFF);
+        try self.emitByte(0xFF);
+        return @intCast(self.currentChunk().code.count - 2);
+    }
+
     fn emitReturn(self: *Self) CompilerError!void {
         try self.emitByte(.ret);
     }
@@ -244,6 +252,19 @@ pub const Compiler = struct {
 
     fn emitConstantIndex(self: *Self, index: usize) CompilerError!void {
         try self.currentChunk().writeConstantIndex(index, self.previous.line);
+    }
+
+    fn patchJump(self: *Self, offset: u16) void {
+        const jump = self.currentChunk().code.count - offset - 2;
+
+        if (jump > u16_max) {
+            self.err("Too much code to jump over.");
+        }
+
+        const jump_converted = @as(u16, @intCast(jump));
+
+        self.currentChunk().code.data[offset] = @intCast((jump_converted >> 8) & 0xFF);
+        self.currentChunk().code.data[offset + 1] = @intCast(jump_converted & 0xFF);
     }
 
     fn endCompiler(self: *Self) CompilerError!void {
@@ -339,6 +360,27 @@ pub const Compiler = struct {
         try self.emitByte(.pop);
     }
 
+    fn ifStatement(self: *Self) CompilerError!void {
+        self.consume(.left_paren, "Expect '(' after 'if'.");
+        try self.expression();
+        self.consume(.right_paren, "Expect ')' after confition.");
+
+        const then_jump = try self.emitJump(.jump_if_false);
+        try self.emitByte(.pop);
+
+        try self.statement();
+        const else_jump = try self.emitJump(.jump);
+
+        self.patchJump(then_jump);
+        try self.emitByte(.pop);
+
+        if (self.match(._else)) {
+            try self.statement();
+        }
+
+        self.patchJump(else_jump);
+    }
+
     fn printStatement(self: *Self) CompilerError!void {
         try self.expression();
         self.consume(.semicolon, "Expect ';' after value.");
@@ -379,6 +421,8 @@ pub const Compiler = struct {
     fn statement(self: *Self) CompilerError!void {
         if (self.match(.print)) {
             try self.printStatement();
+        } else if (self.match(._if)) {
+            try self.ifStatement();
         } else if (self.match(.left_brace)) {
             self.beginScope();
             try self.block();

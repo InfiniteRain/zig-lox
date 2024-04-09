@@ -28,6 +28,8 @@ pub const OpCode = enum(u8) {
     constant_long,
     negate,
     print,
+    jump,
+    jump_if_false,
     nil,
     true,
     false,

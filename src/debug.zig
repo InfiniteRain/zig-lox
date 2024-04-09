@@ -40,6 +40,8 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
         .constant_long => constantLongInstruction(chunk, "CONSTANT_LONG", offset, io),
         .negate => simpleInstruction("NEGATE", offset, io),
         .print => simpleInstruction("PRINT", offset, io),
+        .jump => jumpInstruction("JUMP", 1, chunk, offset, io),
+        .jump_if_false => jumpInstruction("JUMP_IF_FALSE", 1, chunk, offset, io),
         .add => simpleInstruction("ADD", offset, io),
         .nil => simpleInstruction("NIL", offset, io),
         .true => simpleInstruction("TRUE", offset, io),
@@ -109,6 +111,16 @@ fn threeByteInstruction(name: []const u8, chunk: *const Chunk, offset: usize, io
 
     io.print("{s: <18} {:0>4}\n", .{ name, (left << 16) | (middle << 8) | right });
     return offset + 4;
+}
+
+fn jumpInstruction(name: []const u8, sign: u32, chunk: *const Chunk, offset: usize, io: *IoHandler) usize {
+    const left: u16 = @intCast(chunk.code.data[offset + 1]);
+    const right: u16 = @intCast(chunk.code.data[offset + 2]);
+    const jump = (left << 8) | right;
+
+    io.print("{s: <18} {:0>4} -> {}\n", .{ name, offset, offset + 3 + sign * jump });
+
+    return offset + 3;
 }
 
 fn extractConstant(chunk: *const Chunk, index: usize) Value {
