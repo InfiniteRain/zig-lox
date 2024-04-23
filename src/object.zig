@@ -82,7 +82,7 @@ pub const Obj = struct {
     pub fn free(self: *Self, allocator: Allocator) void {
         switch (self.type) {
             .string => {
-                var string = self.as(.string);
+                const string = self.as(.string);
                 _free(allocator, string.chars);
                 destroy(allocator, self.as(.string));
             },
@@ -93,7 +93,7 @@ pub const Obj = struct {
         var current = objects;
 
         while (current) |object| {
-            var next = object.next;
+            const next = object.next;
             object.free(allocator);
             current = next;
         }
@@ -118,6 +118,6 @@ pub const Obj = struct {
     }
 
     pub fn as(self: *Self, comptime _type: Type) *Type.TypeStruct(_type) {
-        return @fieldParentPtr(Type.TypeStruct(_type), "obj", self);
+        return @fieldParentPtr("obj", self);
     }
 };

@@ -19,8 +19,8 @@ pub const IoHandler = struct {
     stderr: Writer,
 
     pub fn init(allocator: Allocator) !IoHandler {
-        var write_buffer = try alloc(u8, allocator, buffer_length);
-        var write_buffer_stream = io.fixedBufferStream(write_buffer);
+        const write_buffer = try alloc(u8, allocator, buffer_length);
+        const write_buffer_stream = io.fixedBufferStream(write_buffer);
 
         const stdin = io.getStdIn().reader();
         const stdout = io.getStdOut().writer();

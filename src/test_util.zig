@@ -20,8 +20,8 @@ pub const TableSuite = struct {
 
     pub fn init(allocator: Allocator) !Self {
         var io = try IoHandler.init(allocator);
-        var vm = try VM.init(allocator, &io);
-        var table = try Table.init(allocator);
+        const vm = try VM.init(allocator, &io);
+        const table = try Table.init(allocator);
 
         return .{
             .allocator = allocator,

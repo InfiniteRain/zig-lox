@@ -243,6 +243,6 @@ test "writeConstant and read_constant work as expected" {
         const value: f64 = @floatFromInt(i);
         const index = try chunk.addConstant(.{ .number = value });
 
-        try expect(@fabs(chunk.getConstant(index).number - value) < 1e-9);
+        try expect(@abs(chunk.getConstant(index).number - value) < 1e-9);
     }
 }

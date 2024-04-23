@@ -31,7 +31,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    exe.addOptions("exe_options", exe_options);
+    exe.root_module.addOptions("exe_options", exe_options);
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
@@ -69,7 +69,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    unit_tests.addOptions("exe_options", exe_options);
+    unit_tests.root_module.addOptions("exe_options", exe_options);
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
 

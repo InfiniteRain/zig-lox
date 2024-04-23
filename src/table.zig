@@ -442,7 +442,7 @@ test "get should resolve with correct values" {
 
     // THEN
     try expect(val1 == .nil);
-    try expect(@fabs(val2.number - 20.0) < 1e-9);
+    try expect(@abs(val2.number - 20.0) < 1e-9);
     try expect(!val3.bool);
     try expect(val4.obj == &(try s.createString("some value")).obj);
 }

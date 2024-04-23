@@ -2,7 +2,6 @@ const std = @import("std");
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
 const argsAlloc = std.process.argsAlloc;
 const argsFree = std.process.argsFree;
-const os = std.os;
 const fixedBufferStream = std.io.fixedBufferStream;
 const Allocator = std.mem.Allocator;
 const chunk_package = @import("chunk.zig");
@@ -40,7 +39,7 @@ pub fn main() !void {
         2 => try runFile(allocator, args[1], &compiler, &vm, &io),
         else => {
             io.err("Usage: zig-lox [path]\n", .{});
-            os.exit(64);
+            std.posix.exit(64);
         },
     }
 }
@@ -50,8 +49,8 @@ fn runFile(allocator: Allocator, file_path: []u8, compiler: *Compiler, vm: *VM, 
     defer free(allocator, source);
 
     vm.interpret(source, compiler) catch |err| switch (err) {
-        error.CompileError => os.exit(65),
-        error.RuntimeError => os.exit(70),
+        error.CompileError => std.posix.exit(65),
+        error.RuntimeError => std.posix.exit(70),
         else => return err,
     };
 }
@@ -59,7 +58,7 @@ fn runFile(allocator: Allocator, file_path: []u8, compiler: *Compiler, vm: *VM, 
 fn readFileAlloc(allocator: Allocator, file_path: []u8, io: *IoHandler) ![]u8 {
     const file = std.fs.cwd().openFile(file_path, .{ .mode = .read_only }) catch {
         io.print("Could not open file '{s}'.\n", .{file_path});
-        os.exit(74);
+        std.posix.exit(74);
     };
     defer file.close();
 
@@ -69,7 +68,7 @@ fn readFileAlloc(allocator: Allocator, file_path: []u8, io: *IoHandler) ![]u8 {
 
     return file.reader().readAllAlloc(allocator, end) catch {
         io.print("Not enough memory to read '{s}'.\n", .{file_path});
-        os.exit(74);
+        std.posix.exit(74);
     };
 }
 
