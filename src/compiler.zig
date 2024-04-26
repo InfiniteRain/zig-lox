@@ -86,7 +86,7 @@ pub const Compiler = struct {
         array.set(.identifier, .{ .prefix = Self.variable });
         array.set(.string, .{ .prefix = Self.string });
         array.set(.number, .{ .prefix = Self.number });
-        array.set(._and, .{});
+        array.set(._and, .{ .infix = Self._and, .precedence = ._and });
         array.set(.class, .{});
         array.set(._else, .{});
         array.set(.false, .{ .prefix = Self.literal });
@@ -94,7 +94,7 @@ pub const Compiler = struct {
         array.set(.fun, .{});
         array.set(._if, .{});
         array.set(.nil, .{ .prefix = Self.literal });
-        array.set(._or, .{});
+        array.set(._or, .{ .infix = Self._or, .precedence = ._or });
         array.set(.print, .{});
         array.set(._return, .{});
         array.set(.super, .{});
@@ -288,8 +288,8 @@ pub const Compiler = struct {
         }
     }
 
-    fn binary(self: *Self, canAssign: bool) CompilerError!void {
-        _ = canAssign;
+    fn binary(self: *Self, can_assign: bool) CompilerError!void {
+        _ = can_assign;
 
         const operator_type = self.previous.type;
         const rule = rules.get(operator_type);
@@ -310,8 +310,8 @@ pub const Compiler = struct {
         }
     }
 
-    fn literal(self: *Self, canAssign: bool) CompilerError!void {
-        _ = canAssign;
+    fn literal(self: *Self, can_assign: bool) CompilerError!void {
+        _ = can_assign;
 
         switch (self.previous.type) {
             .false => try self.emitByte(.false),
@@ -432,22 +432,22 @@ pub const Compiler = struct {
         }
     }
 
-    fn grouping(self: *Self, canAssign: bool) CompilerError!void {
-        _ = canAssign;
+    fn grouping(self: *Self, can_assign: bool) CompilerError!void {
+        _ = can_assign;
 
         try self.expression();
         self.consume(.right_paren, "Expect ')' after expression.");
     }
 
-    fn number(self: *Self, canAssign: bool) CompilerError!void {
-        _ = canAssign;
+    fn number(self: *Self, can_assign: bool) CompilerError!void {
+        _ = can_assign;
 
         const value = parseFloat(f64, self.previous.lexeme) catch unreachable;
         try self.emitConstant(.{ .number = value });
     }
 
-    fn string(self: *Self, canAssign: bool) CompilerError!void {
-        _ = canAssign;
+    fn string(self: *Self, can_assign: bool) CompilerError!void {
+        _ = can_assign;
 
         const string_obj = try Obj.String.fromBufAlloc(
             self.allocator,
@@ -460,7 +460,7 @@ pub const Compiler = struct {
         });
     }
 
-    fn namedVariable(self: *Self, name: Token, canAssign: bool) CompilerError!void {
+    fn namedVariable(self: *Self, name: Token, can_assign: bool) CompilerError!void {
         const arg = self.resolveLocal(&name);
         var constant_index: usize = undefined;
         var get_op: OpCode = undefined;
@@ -481,7 +481,7 @@ pub const Compiler = struct {
             is_const = result[1];
         }
 
-        if (canAssign and self.match(.equal)) {
+        if (can_assign and self.match(.equal)) {
             if (is_const) {
                 self.err("Can't reassign a constant.");
             }
@@ -495,12 +495,12 @@ pub const Compiler = struct {
         try self.emitConstantIndex(constant_index);
     }
 
-    fn variable(self: *Self, canAssign: bool) CompilerError!void {
-        try self.namedVariable(self.previous, canAssign);
+    fn variable(self: *Self, can_assign: bool) CompilerError!void {
+        try self.namedVariable(self.previous, can_assign);
     }
 
-    fn unary(self: *Self, canAssign: bool) CompilerError!void {
-        _ = canAssign;
+    fn unary(self: *Self, can_assign: bool) CompilerError!void {
+        _ = can_assign;
 
         const operator_type = self.previous.type;
 
@@ -523,16 +523,16 @@ pub const Compiler = struct {
             return;
         }
 
-        const canAssign = @intFromEnum(precedence) <= @intFromEnum(Precedence.assignment);
-        try prefixRule.?(self, canAssign);
+        const can_assign = @intFromEnum(precedence) <= @intFromEnum(Precedence.assignment);
+        try prefixRule.?(self, can_assign);
 
         while (@intFromEnum(precedence) <= @intFromEnum(rules.get(self.current.type).precedence)) {
             self.advance();
             const infixRule = rules.get(self.previous.type).infix;
-            try infixRule.?(self, canAssign);
+            try infixRule.?(self, can_assign);
         }
 
-        if (canAssign and self.match(.equal)) {
+        if (can_assign and self.match(.equal)) {
             self.err("Invalid assignment target.");
         }
     }
@@ -653,6 +653,30 @@ pub const Compiler = struct {
         }
 
         try self.emitConstantIndex(global);
+    }
+
+    fn _and(self: *Self, can_assign: bool) CompilerError!void {
+        _ = can_assign;
+
+        const end_jump = try self.emitJump(.jump_if_false);
+
+        try self.emitByte(.pop);
+        try self.parsePrecedence(._and);
+
+        self.patchJump(end_jump);
+    }
+
+    fn _or(self: *Self, can_assign: bool) CompilerError!void {
+        _ = can_assign;
+
+        const else_jump = try self.emitJump(.jump_if_false);
+        const end_jump = try self.emitJump(.jump);
+
+        self.patchJump(else_jump);
+        try self.emitByte(.pop);
+
+        try self.parsePrecedence(._or);
+        self.patchJump(end_jump);
     }
 
     fn errAtCurrent(self: *Self, message: []const u8) void {
