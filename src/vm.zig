@@ -246,6 +246,10 @@ pub const VM = struct {
                         self.ip += offset;
                     }
                 },
+                .loop => {
+                    const offset = self.readU16();
+                    self.ip -= offset;
+                },
                 .ret => {
                     return;
                 },

@@ -235,6 +235,18 @@ pub const Compiler = struct {
         }
     }
 
+    fn emitLoop(self: *Self, loop_start: usize) CompilerError!void {
+        try self.emitByte(.loop);
+
+        const offset = self.currentChunk().code.count - loop_start + 2;
+        if (offset > u16_max) {
+            self.err("Loop body to large.");
+        }
+
+        try self.emitByte(@as(u8, @intCast((offset >> 8) & 0xFF)));
+        try self.emitByte(@as(u8, @intCast(offset & 0xFF)));
+    }
+
     fn emitJump(self: *Self, byte: anytype) CompilerError!u16 {
         try self.emitByte(byte);
         try self.emitByte(0xFF);
@@ -387,6 +399,23 @@ pub const Compiler = struct {
         try self.emitByte(.print);
     }
 
+    fn whileStatement(self: *Self) CompilerError!void {
+        const loop_start = self.currentChunk().code.count;
+
+        self.consume(.left_paren, "Expect '(' after 'while'.");
+        try self.expression();
+        self.consume(.right_paren, "Expect ')' after condition.");
+
+        const exit_jump = try self.emitJump(.jump_if_false);
+        try self.emitByte(.pop);
+        try self.statement();
+
+        try self.emitLoop(loop_start);
+
+        self.patchJump(exit_jump);
+        try self.emitByte(.pop);
+    }
+
     fn synchronize(self: *Self) void {
         self.panic_mode = false;
 
@@ -423,6 +452,8 @@ pub const Compiler = struct {
             try self.printStatement();
         } else if (self.match(._if)) {
             try self.ifStatement();
+        } else if (self.match(._while)) {
+            try self.whileStatement();
         } else if (self.match(.left_brace)) {
             self.beginScope();
             try self.block();

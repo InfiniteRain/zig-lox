@@ -36,6 +36,7 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
 
     return switch (@as(OpCode, @enumFromInt(instruction))) {
         .ret => simpleInstruction("RET", offset, io),
+        .loop => jumpInstruction("LOOP", -1, chunk, offset, io),
         .constant => constantInstruction(chunk, "CONSTANT", offset, io),
         .constant_long => constantLongInstruction(chunk, "CONSTANT_LONG", offset, io),
         .negate => simpleInstruction("NEGATE", offset, io),
@@ -113,12 +114,16 @@ fn threeByteInstruction(name: []const u8, chunk: *const Chunk, offset: usize, io
     return offset + 4;
 }
 
-fn jumpInstruction(name: []const u8, sign: u32, chunk: *const Chunk, offset: usize, io: *IoHandler) usize {
+fn jumpInstruction(name: []const u8, sign: i32, chunk: *const Chunk, offset: usize, io: *IoHandler) usize {
     const left: u16 = @intCast(chunk.code.data[offset + 1]);
     const right: u16 = @intCast(chunk.code.data[offset + 2]);
     const jump = (left << 8) | right;
 
-    io.print("{s: <18} {:0>4} -> {}\n", .{ name, offset, offset + 3 + sign * jump });
+    io.print("{s: <18} {:0>4} -> {}\n", .{
+        name,
+        offset,
+        @as(i32, @intCast(offset)) + 3 + sign * @as(i32, @intCast(jump)),
+    });
 
     return offset + 3;
 }
