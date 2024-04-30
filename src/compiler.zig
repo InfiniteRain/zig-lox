@@ -372,6 +372,54 @@ pub const Compiler = struct {
         try self.emitByte(.pop);
     }
 
+    fn forStatement(self: *Self) CompilerError!void {
+        self.beginScope();
+
+        self.consume(.left_paren, "Expect '(' after 'for'.");
+
+        if (self.match(.semicolon)) {
+            // no initializer
+        } else if (self.match(._var)) {
+            try self.varDeclaration();
+        } else {
+            try self.expression();
+        }
+
+        var loop_start = self.currentChunk().code.count;
+        var exit_jump: ?u16 = null;
+
+        if (!self.match(.semicolon)) {
+            try self.expression();
+            self.consume(.semicolon, "Expect ';' after loop condition.");
+
+            exit_jump = try self.emitJump(.jump_if_false);
+            try self.emitByte(.pop);
+        }
+
+        if (!self.match(.right_paren)) {
+            const body_jump = try self.emitJump(.jump);
+            const increment_start = self.currentChunk().code.count;
+
+            try self.expression();
+            try self.emitByte(.pop);
+            self.consume(.right_paren, "Expect ')' after for clauses.");
+
+            try self.emitLoop(loop_start);
+            loop_start = increment_start;
+            self.patchJump(body_jump);
+        }
+
+        try self.statement();
+        try self.emitLoop(loop_start);
+
+        if (exit_jump) |jump_index| {
+            self.patchJump(jump_index);
+            try self.emitByte(.pop);
+        }
+
+        try self.endScope();
+    }
+
     fn ifStatement(self: *Self) CompilerError!void {
         self.consume(.left_paren, "Expect '(' after 'if'.");
         try self.expression();
@@ -450,6 +498,8 @@ pub const Compiler = struct {
     fn statement(self: *Self) CompilerError!void {
         if (self.match(.print)) {
             try self.printStatement();
+        } else if (self.match(._for)) {
+            try self.forStatement();
         } else if (self.match(._if)) {
             try self.ifStatement();
         } else if (self.match(._while)) {
