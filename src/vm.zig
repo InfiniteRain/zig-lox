@@ -185,6 +185,7 @@ pub const VM = struct {
                 .true => self.stack.push(Value{ .bool = true }),
                 .false => self.stack.push(Value{ .bool = false }),
                 .pop => {
+                    assert(@intFromPtr(self.stack.top) > @intFromPtr(&self.stack.stack[0]));
                     _ = self.stack.pop();
                 },
                 .get_local, .get_local_long => {
@@ -251,6 +252,7 @@ pub const VM = struct {
                     self.ip -= offset;
                 },
                 .ret => {
+                    assert(@intFromPtr(&self.stack.stack[0]) == @intFromPtr(self.stack.top));
                     return;
                 },
                 _ => return error.CompileError,
