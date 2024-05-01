@@ -8,6 +8,7 @@ pub const TokenType = enum {
     right_paren,
     left_brace,
     right_brace,
+    colon,
     comma,
     dot,
     minus,
@@ -30,8 +31,10 @@ pub const TokenType = enum {
     number,
 
     _and,
+    case,
     class,
     _const,
+    default,
     _else,
     false,
     _for,
@@ -46,6 +49,7 @@ pub const TokenType = enum {
     true,
     _var,
     _while,
+    _switch,
 
     _error,
     eof,
@@ -112,6 +116,7 @@ pub const Scanner = struct {
             '+' => self.makeToken(.plus),
             '/' => self.makeToken(.slash),
             '*' => self.makeToken(.star),
+            ':' => self.makeToken(.colon),
             '!' => self.makeToken(if (self.match('=')) .bang_equal else .bang),
             '=' => self.makeToken(if (self.match('=')) .equal_equal else .equal),
             '<' => self.makeToken(if (self.match('=')) .less_equal else .less),
@@ -244,6 +249,7 @@ pub const Scanner = struct {
             'c' => {
                 return if (self.current - self.start > 1)
                     switch (self.source[self.start + 1]) {
+                        'a' => self.checkKeyword(2, "se", .case),
                         'l' => self.checkKeyword(2, "ass", .class),
                         'o' => self.checkKeyword(2, "nst", ._const),
                         else => .identifier,
@@ -251,6 +257,7 @@ pub const Scanner = struct {
                 else
                     .identifier;
             },
+            'd' => self.checkKeyword(1, "efault", .default),
             'e' => self.checkKeyword(1, "lse", ._else),
             'f' => {
                 return if (self.current - self.start > 1)
@@ -268,20 +275,25 @@ pub const Scanner = struct {
             'o' => self.checkKeyword(1, "r", ._or),
             'p' => self.checkKeyword(1, "rint", .print),
             'r' => self.checkKeyword(1, "eturn", ._return),
-            's' => self.checkKeyword(1, "uper", .super),
+            's' => {
+                return if (self.current - self.start > 1)
+                    switch (self.source[self.start + 1]) {
+                        'u' => self.checkKeyword(2, "per", .super),
+                        'w' => self.checkKeyword(2, "itch", ._switch),
+                        else => .identifier,
+                    }
+                else
+                    .identifier;
+            },
             't' => {
                 return if (self.current - self.start > 1)
                     switch (self.source[self.start + 1]) {
                         'h' => self.checkKeyword(2, "is", .this),
                         'r' => self.checkKeyword(2, "ue", .true),
-                        else => {
-                            self.io.print("hit {c} {any}\n", .{ self.source[self.start + 1], self.current - self.start > 1 });
-                            return .identifier;
-                        },
+                        else => .identifier,
                     }
-                else {
-                    return .identifier;
-                };
+                else
+                    .identifier;
             },
             'v' => self.checkKeyword(1, "ar", ._var),
             'w' => self.checkKeyword(1, "hile", ._while),

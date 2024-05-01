@@ -35,6 +35,7 @@ pub const OpCode = enum(u8) {
     true,
     false,
     pop,
+    duplicate,
     get_local,
     get_local_long,
     set_local,

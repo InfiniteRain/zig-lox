@@ -185,8 +185,11 @@ pub const VM = struct {
                 .true => self.stack.push(Value{ .bool = true }),
                 .false => self.stack.push(Value{ .bool = false }),
                 .pop => {
-                    assert(@intFromPtr(self.stack.top) > @intFromPtr(&self.stack.stack[0]));
+                    self.assertStackNotEmpty();
                     _ = self.stack.pop();
+                },
+                .duplicate => {
+                    self.stack.push(self.stack.peek(0));
                 },
                 .get_local, .get_local_long => {
                     const slot = if (instruction == .get_local) self.readU8() else self.readU24();
@@ -229,6 +232,8 @@ pub const VM = struct {
                 .divide => try self.binaryOperation(.divide),
                 .not => self.stack.push(Value{ .bool = self.stack.pop().isFalsey() }),
                 .equal => {
+                    self.assertStackGreaterEqual(2);
+
                     const b = self.stack.pop();
                     const a = self.stack.pop();
 
@@ -252,12 +257,24 @@ pub const VM = struct {
                     self.ip -= offset;
                 },
                 .ret => {
-                    assert(@intFromPtr(&self.stack.stack[0]) == @intFromPtr(self.stack.top));
+                    self.assertStackEmpty();
                     return;
                 },
                 _ => return error.CompileError,
             }
         }
+    }
+
+    fn assertStackEmpty(self: *Self) void {
+        assert(@intFromPtr(&self.stack.stack[0]) == @intFromPtr(self.stack.top));
+    }
+
+    fn assertStackNotEmpty(self: *Self) void {
+        assert(@intFromPtr(self.stack.top) > @intFromPtr(&self.stack.stack[0]));
+    }
+
+    fn assertStackGreaterEqual(self: *Self, comptime length: usize) void {
+        assert(@intFromPtr(&self.stack.stack[0]) + length * @sizeOf(@TypeOf(&self.stack.stack[0])) <= @intFromPtr(self.stack.top));
     }
 
     fn concatenate(self: *Self) !void {

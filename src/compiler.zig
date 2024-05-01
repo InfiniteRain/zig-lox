@@ -372,6 +372,50 @@ pub const Compiler = struct {
         try self.emitByte(.pop);
     }
 
+    fn switchClauses(self: *Self) CompilerError!void {
+        if (self.match(.case)) {
+            try self.emitByte(.duplicate);
+            try self.expression();
+            try self.emitByte(.equal);
+            self.consume(.colon, "Expect ':' after case expression.");
+
+            const case_jump = try self.emitJump(.jump_if_false);
+
+            try self.emitByte(.pop);
+
+            while (!self.check(.case) and !self.check(.default) and
+                !self.check(.right_brace) and !self.check(.eof))
+            {
+                try self.statement();
+            }
+
+            const exit_jump = try self.emitJump(.jump);
+
+            self.patchJump(case_jump);
+            try self.emitByte(.pop);
+            try self.switchClauses();
+            self.patchJump(exit_jump);
+        } else if (self.match(.default)) {
+            self.consume(.colon, "Expect ':' after default expression.");
+
+            if (!self.check(.right_brace) and !self.check(.eof)) {
+                try self.statement();
+            }
+        }
+    }
+
+    fn switchStatement(self: *Self) CompilerError!void {
+        self.beginScope();
+        self.consume(.left_paren, "Expect '(' after 'switch'.");
+        try self.expression();
+        self.consume(.right_paren, "Expect ')' after switch expression.");
+        self.consume(.left_brace, "Expect '{' to open switch body.");
+        try self.switchClauses();
+        self.consume(.right_brace, "Expect '}' to close switch body.");
+        try self.emitByte(.pop);
+        try self.endScope();
+    }
+
     fn forStatement(self: *Self) CompilerError!void {
         self.beginScope();
 
@@ -502,6 +546,8 @@ pub const Compiler = struct {
             try self.forStatement();
         } else if (self.match(._if)) {
             try self.ifStatement();
+        } else if (self.match(._switch)) {
+            try self.switchStatement();
         } else if (self.match(._while)) {
             try self.whileStatement();
         } else if (self.match(.left_brace)) {
