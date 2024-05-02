@@ -717,6 +717,11 @@ pub const Compiler = struct {
             .is_const = is_const,
         };
 
+        // resize the dynamic array if full
+        if (self.local_count == self.locals.count) {
+            try self.locals.push(undefined);
+        }
+
         self.locals.data[self.local_count] = local;
 
         self.local_count += 1;
