@@ -426,7 +426,7 @@ pub const Compiler = struct {
         } else if (self.match(._var)) {
             try self.varDeclaration();
         } else {
-            try self.expression();
+            try self.expressionStatement();
         }
 
         var loop_start = self.currentChunk().code.count;
@@ -717,7 +717,7 @@ pub const Compiler = struct {
             .is_const = is_const,
         };
 
-        try self.locals.push(local);
+        self.locals.data[self.local_count] = local;
 
         self.local_count += 1;
     }
