@@ -123,6 +123,9 @@ pub const Compiler = struct {
     local_count: usize,
     scope_depth: usize,
 
+    loop_depth: ?usize,
+    loop_start: usize,
+
     pub fn init(allocator: Allocator, vm: *VM, io: *IoHandler) !Self {
         return .{
             .allocator = allocator,
@@ -138,6 +141,9 @@ pub const Compiler = struct {
             .locals = try DynamicArray(Local).init(allocator),
             .local_count = undefined,
             .scope_depth = undefined,
+
+            .loop_depth = undefined,
+            .loop_start = undefined,
         };
     }
 
@@ -148,6 +154,9 @@ pub const Compiler = struct {
     pub fn compile(self: *Self, source: []const u8, chunk: *Chunk) CompilerError!bool {
         self.local_count = 0;
         self.scope_depth = 0;
+
+        self.loop_depth = null;
+        self.loop_start = 0;
 
         self.scanner = Scanner.init(source, self.io);
         self.compiling_chunk = chunk;
@@ -300,6 +309,24 @@ pub const Compiler = struct {
         }
     }
 
+    fn popLoopScope(self: *Self) CompilerError!void {
+        if (self.local_count > 0) {
+            var i: usize = self.local_count - 1;
+
+            while (i >= 0) : (i -= 1) {
+                const local = &self.locals.data[i];
+
+                if (local.depth > self.loop_depth.?) {
+                    try self.emitByte(.pop);
+                }
+
+                if (i <= 0) {
+                    break;
+                }
+            }
+        }
+    }
+
     fn binary(self: *Self, can_assign: bool) CompilerError!void {
         _ = can_assign;
 
@@ -419,6 +446,11 @@ pub const Compiler = struct {
     fn forStatement(self: *Self) CompilerError!void {
         self.beginScope();
 
+        const old_loop_start = self.loop_start;
+        const old_loop_depth = self.loop_depth;
+
+        self.loop_depth = self.scope_depth;
+
         self.consume(.left_paren, "Expect '(' after 'for'.");
 
         if (self.match(.semicolon)) {
@@ -429,7 +461,7 @@ pub const Compiler = struct {
             try self.expressionStatement();
         }
 
-        var loop_start = self.currentChunk().code.count;
+        self.loop_start = self.currentChunk().code.count;
         var exit_jump: ?u16 = null;
 
         if (!self.match(.semicolon)) {
@@ -448,18 +480,21 @@ pub const Compiler = struct {
             try self.emitByte(.pop);
             self.consume(.right_paren, "Expect ')' after for clauses.");
 
-            try self.emitLoop(loop_start);
-            loop_start = increment_start;
+            try self.emitLoop(self.loop_start);
+            self.loop_start = increment_start;
             self.patchJump(body_jump);
         }
 
         try self.statement();
-        try self.emitLoop(loop_start);
+        try self.emitLoop(self.loop_start);
 
         if (exit_jump) |jump_index| {
             self.patchJump(jump_index);
             try self.emitByte(.pop);
         }
+
+        self.loop_start = old_loop_start;
+        self.loop_depth = old_loop_depth;
 
         try self.endScope();
     }
@@ -492,7 +527,11 @@ pub const Compiler = struct {
     }
 
     fn whileStatement(self: *Self) CompilerError!void {
-        const loop_start = self.currentChunk().code.count;
+        const old_loop_depth = self.loop_depth;
+        const old_loop_start = self.loop_start;
+
+        self.loop_depth = self.scope_depth;
+        self.loop_start = self.currentChunk().code.count;
 
         self.consume(.left_paren, "Expect '(' after 'while'.");
         try self.expression();
@@ -502,10 +541,26 @@ pub const Compiler = struct {
         try self.emitByte(.pop);
         try self.statement();
 
-        try self.emitLoop(loop_start);
+        try self.emitLoop(self.loop_start);
 
         self.patchJump(exit_jump);
         try self.emitByte(.pop);
+
+        self.loop_depth = old_loop_depth;
+        self.loop_start = old_loop_start;
+    }
+
+    fn continueStatement(self: *Self) CompilerError!void {
+        if (self.loop_depth == null) {
+            self.err("The 'continue' keyword can only be used inside of a loop.");
+            self.synchronize();
+            return;
+        }
+
+        self.consume(.semicolon, "Expect ';' after continue.");
+
+        try self.popLoopScope();
+        try self.emitLoop(self.loop_start);
     }
 
     fn synchronize(self: *Self) void {
@@ -554,6 +609,8 @@ pub const Compiler = struct {
             self.beginScope();
             try self.block();
             try self.endScope();
+        } else if (self.match(._continue)) {
+            try self.continueStatement();
         } else {
             try self.expressionStatement();
         }
