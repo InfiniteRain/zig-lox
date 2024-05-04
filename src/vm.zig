@@ -382,7 +382,7 @@ pub const VM = struct {
     }
 };
 
-test {
+test "all intermediary strings should be dealloced at the end of the program" {
     const allocator = std.testing.allocator;
 
     var io = try IoHandler.init(allocator);
@@ -391,8 +391,8 @@ test {
     var vm = try VM.init(allocator, &io);
     defer vm.deinit();
 
-    var compiler = try Compiler.init(allocator, &vm, &io);
+    var compiler = try Compiler.init(allocator, .script, &vm, &io);
     defer compiler.deinit();
 
-    _ = try vm.interpret("\"st\" + \"ri\" + \"ng\"", &compiler);
+    vm.interpret("\"st\" + \"ri\" + \"ng\";", &compiler) catch unreachable;
 }

@@ -310,8 +310,8 @@ pub const Compiler = struct {
 
         const jump_converted = @as(u16, @intCast(jump));
 
-        self.currentChunk().code.data[offset] = @intCast((jump_converted >> 8) & 0xFF);
-        self.currentChunk().code.data[offset + 1] = @intCast(jump_converted & 0xFF);
+        self.currentChunk().code.set(offset, @intCast((jump_converted >> 8) & 0xFF)) catch unreachable;
+        self.currentChunk().code.set(offset + 1, @intCast(jump_converted & 0xFF)) catch unreachable;
     }
 
     fn endCompiler(self: *Self) CompilerError!*Obj.Function {
@@ -807,13 +807,7 @@ pub const Compiler = struct {
             .is_const = is_const,
         };
 
-        // resize the dynamic array if full
-        if (self.local_count == self.locals.count) {
-            try self.locals.push(undefined);
-        }
-
-        self.locals.data[self.local_count] = local;
-
+        try self.locals.set(self.local_count, local);
         self.local_count += 1;
     }
 

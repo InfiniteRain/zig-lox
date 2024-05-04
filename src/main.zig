@@ -94,6 +94,6 @@ fn repl(compiler: *Compiler, vm: *VM, io: *IoHandler) !void {
     }
 }
 
-test {
-    _ = @import("vm.zig");
+test "main" {
+    std.testing.refAllDeclsRecursive(@This());
 }

@@ -159,7 +159,10 @@ pub const Chunk = struct {
 };
 
 test "first allocation in init fails" {
-    var failing_allocator = testing.FailingAllocator.init(testing.allocator, 0);
+    var failing_allocator = testing.FailingAllocator.init(
+        testing.allocator,
+        .{ .fail_index = 0 },
+    );
     const allocator = failing_allocator.allocator();
 
     const result = Chunk.init(allocator);
@@ -168,7 +171,10 @@ test "first allocation in init fails" {
 }
 
 test "second allocation in init fails" {
-    var failing_allocator = testing.FailingAllocator.init(testing.allocator, 1);
+    var failing_allocator = testing.FailingAllocator.init(
+        testing.allocator,
+        .{ .fail_index = 1 },
+    );
     const allocator = failing_allocator.allocator();
 
     const result = Chunk.init(allocator);
@@ -177,7 +183,10 @@ test "second allocation in init fails" {
 }
 
 test "third allocation in init fails" {
-    var failing_allocator = testing.FailingAllocator.init(testing.allocator, 2);
+    var failing_allocator = testing.FailingAllocator.init(
+        testing.allocator,
+        .{ .fail_index = 2 },
+    );
     const allocator = failing_allocator.allocator();
 
     const result = Chunk.init(allocator);

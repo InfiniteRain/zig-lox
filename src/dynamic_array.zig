@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const expect = testing.expect;
@@ -39,6 +40,16 @@ pub fn DynamicArray(comptime T: type) type {
             self.data[self.count] = value;
             self.count += 1;
         }
+
+        pub fn set(self: *Self, index: usize, value: T) !void {
+            assert(index >= 0 and index <= self.data.len);
+
+            if (index == self.data.len) {
+                try self.push(undefined);
+            }
+
+            self.data[index] = value;
+        }
     };
 }
 
@@ -73,4 +84,17 @@ test "array size gets properly reallocated" {
 
     try expect(array.data.len == 32);
     try expect(array.data[16] == 16);
+}
+
+test "array size gets reallocated when set is used" {
+    const allocator = testing.allocator;
+
+    var array = try DynamicArray(u8).init(allocator);
+    defer array.deinit();
+
+    for (0..8) |i| {
+        try array.push(@intCast(i));
+    }
+
+    try expect(array.data.len == 8);
 }
