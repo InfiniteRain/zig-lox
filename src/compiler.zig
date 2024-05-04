@@ -48,7 +48,10 @@ const ParseRule = struct {
     precedence: Precedence = .none,
 };
 
-const CompilerError = error{OutOfMemory};
+const CompilerError = error{
+    OutOfMemory,
+    CompileError,
+};
 
 const ParseFn = *const fn (*Compiler, bool) CompilerError!void;
 
@@ -110,11 +113,14 @@ pub const Compiler = struct {
     const u16_max = std.math.maxInt(u16);
 
     allocator: Allocator,
+
+    function: ?*Obj.Function,
+    function_type: Obj.Function.Type,
+
     scanner: Scanner,
     vm: *VM,
     current: Token,
     previous: Token,
-    compiling_chunk: *Chunk,
     had_error: bool,
     panic_mode: bool,
     io: *IoHandler,
@@ -126,14 +132,22 @@ pub const Compiler = struct {
     loop_depth: ?usize,
     loop_start: usize,
 
-    pub fn init(allocator: Allocator, vm: *VM, io: *IoHandler) !Self {
+    pub fn init(
+        allocator: Allocator,
+        function_type: Obj.Function.Type,
+        vm: *VM,
+        io: *IoHandler,
+    ) !Self {
         return .{
             .allocator = allocator,
+
+            .function = null,
+            .function_type = function_type,
+
             .scanner = undefined,
             .vm = vm,
             .current = undefined,
             .previous = undefined,
-            .compiling_chunk = undefined,
             .had_error = false,
             .panic_mode = false,
             .io = io,
@@ -151,27 +165,39 @@ pub const Compiler = struct {
         self.locals.deinit();
     }
 
-    pub fn compile(self: *Self, source: []const u8, chunk: *Chunk) CompilerError!bool {
-        self.local_count = 0;
+    pub fn compile(self: *Self, source: []const u8) CompilerError!*Obj.Function {
+        self.function = try Obj.Function.allocNew(self.allocator, self.vm);
+
+        self.local_count = 1;
         self.scope_depth = 0;
 
         self.loop_depth = null;
         self.loop_start = 0;
 
+        const local = &self.locals.data[0];
+
+        local.depth = 0;
+        local.name = .{
+            .type = .identifier,
+            .lexeme = &[0]u8{},
+            .line = 0,
+        };
+        local.initialized = false;
+        local.is_const = true;
+
         self.scanner = Scanner.init(source, self.io);
-        self.compiling_chunk = chunk;
         self.advance();
 
         while (!self.check(.eof)) {
             try self.declaration();
         }
 
-        try self.endCompiler();
-        return !self.had_error;
+        const function = try self.endCompiler();
+        return if (self.had_error) error.CompileError else function;
     }
 
     fn currentChunk(self: *Self) *Chunk {
-        return self.compiling_chunk;
+        return &self.function.?.chunk;
     }
 
     fn advance(self: *Self) void {
@@ -288,12 +314,19 @@ pub const Compiler = struct {
         self.currentChunk().code.data[offset + 1] = @intCast(jump_converted & 0xFF);
     }
 
-    fn endCompiler(self: *Self) CompilerError!void {
+    fn endCompiler(self: *Self) CompilerError!*Obj.Function {
         try self.emitReturn();
+        const function = self.function;
 
         if (comptime exe_options.print_code) {
-            disassembleChunk(self.currentChunk(), "code", self.io) catch unreachable;
+            disassembleChunk(
+                self.currentChunk(),
+                if (function.?.name) |name| name.chars else "<script>",
+                self.io,
+            ) catch unreachable;
         }
+
+        return function.?;
     }
 
     fn beginScope(self: *Self) void {

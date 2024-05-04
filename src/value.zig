@@ -22,6 +22,15 @@ pub const Value = union(enum) {
             .number => io.print("{d}", .{self.number}),
             .obj => switch (self.obj.type) {
                 .string => io.print("{s}", .{self.obj.as(.string).chars}),
+                .function => {
+                    const function = self.obj.as(.function);
+
+                    if (function.name) |name| {
+                        io.print("<fn {s}>", .{name.chars});
+                    } else {
+                        io.print("<script>", .{});
+                    }
+                },
             },
         }
     }

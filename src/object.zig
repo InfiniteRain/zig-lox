@@ -9,16 +9,20 @@ const create = memory_package.create;
 const destroy = memory_package.destroy;
 const vm_package = @import("vm.zig");
 const VM = vm_package.VM;
+const chunk_package = @import("chunk.zig");
+const Chunk = chunk_package.Chunk;
 
 pub const Obj = struct {
     const Self = @This();
 
     pub const Type = enum {
         string,
+        function,
 
         pub fn TypeStruct(comptime _type: Type) type {
             return switch (_type) {
                 .string => String,
+                .function => Function,
             };
         }
     };
@@ -29,7 +33,7 @@ pub const Obj = struct {
         hash: u32,
 
         fn allocNew(allocator: Allocator, heap_buf: []u8, string_hash: u32, vm: *VM) !*String {
-            const string_obj = (try Self.fromTypeAlloc(allocator, .string, vm)).as(.string);
+            const string_obj = (try Self.fromTypeAlloc(.string, allocator, vm)).as(.string);
             string_obj.chars = heap_buf;
             string_obj.hash = string_hash;
 
@@ -76,6 +80,27 @@ pub const Obj = struct {
         }
     };
 
+    pub const Function = struct {
+        obj: Self,
+        arity: u16,
+        chunk: Chunk,
+        name: ?*String,
+
+        pub const Type = enum {
+            function,
+            script,
+        };
+
+        pub fn allocNew(allocator: Allocator, vm: *VM) !*Function {
+            const function_obj = (try Self.fromTypeAlloc(.function, allocator, vm)).as(.function);
+            function_obj.arity = 0;
+            function_obj.name = null;
+            function_obj.chunk = try Chunk.init(allocator);
+
+            return function_obj;
+        }
+    };
+
     type: Type,
     next: ?*Self,
 
@@ -85,6 +110,11 @@ pub const Obj = struct {
                 const string = self.as(.string);
                 _free(allocator, string.chars);
                 destroy(allocator, self.as(.string));
+            },
+            .function => {
+                const function = self.as(.function);
+                function.chunk.deinit();
+                destroy(allocator, self.as(.function));
             },
         }
     }
@@ -99,7 +129,7 @@ pub const Obj = struct {
         }
     }
 
-    fn fromTypeAlloc(allocator: Allocator, _type: Type, vm: *VM) !*Self {
+    fn fromTypeAlloc(comptime _type: Type, allocator: Allocator, vm: *VM) !*Self {
         const TypedStruct = Type.TypeStruct(_type);
         const typed_obj = try create(TypedStruct, allocator);
 

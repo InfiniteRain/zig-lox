@@ -31,7 +31,7 @@ pub fn main() !void {
     var vm = try VM.init(allocator, &io);
     defer vm.deinit();
 
-    var compiler = try Compiler.init(allocator, &vm, &io);
+    var compiler = try Compiler.init(allocator, .script, &vm, &io);
     defer compiler.deinit();
 
     switch (args.len) {

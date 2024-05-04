@@ -39,9 +39,15 @@ pub const BinaryOperation = enum {
     less,
 };
 
+pub const CallFrame = struct {
+    function: *Obj.Function,
+    ip: [*]u8,
+    slots: [*]Value,
+};
+
 const Stack = struct {
     const Self = @This();
-    const max_stack = 2048;
+    const max_stack = VM.max_frames * 256;
 
     allocator: Allocator,
     stack: []Value,
@@ -82,10 +88,11 @@ const Stack = struct {
 
 pub const VM = struct {
     const Self = @This();
+    const max_frames = 64;
 
     allocator: Allocator,
-    chunk: *const Chunk,
-    ip: [*]u8,
+    frames: [max_frames]CallFrame,
+    frame_count: usize,
     stack: Stack,
     io: *IoHandler,
     strings: Table,
@@ -95,8 +102,8 @@ pub const VM = struct {
     pub fn init(allocator: Allocator, io: *IoHandler) !Self {
         return .{
             .allocator = allocator,
-            .chunk = undefined,
-            .ip = undefined,
+            .frames = undefined,
+            .frame_count = 0,
             .stack = try Stack.init(allocator),
             .io = io,
             .strings = try Table.init(allocator),
@@ -113,20 +120,23 @@ pub const VM = struct {
     }
 
     pub fn interpret(self: *Self, source: []const u8, compiler: *Compiler) !void {
-        var chunk = try Chunk.init(self.allocator);
-        defer chunk.deinit();
+        const function = try compiler.compile(source);
 
-        if (!try compiler.compile(source, &chunk)) {
-            return error.CompileError;
-        }
+        self.stack.push(.{ .obj = &function.obj });
 
-        self.chunk = &chunk;
-        self.ip = @ptrCast(chunk.code.data);
+        const frame = &self.frames[self.frame_count];
+        frame.function = function;
+        frame.ip = @ptrCast(function.chunk.code.data);
+        frame.slots = @ptrCast(self.stack.stack);
+
+        self.frame_count += 1;
 
         try self.run();
     }
 
     fn run(self: *Self) !void {
+        const frame = self.getStackFrame();
+
         while (true) {
             if (comptime trace_execution) {
                 self.io.print("           ", .{});
@@ -142,7 +152,7 @@ pub const VM = struct {
 
                 self.io.print("\n", .{});
 
-                _ = disassembleInstruction(self.chunk, self.getOffset(), self.io) catch {};
+                _ = disassembleInstruction(&frame.function.chunk, self.getOffset(), self.io) catch unreachable;
             }
 
             const instruction = self.readOpCode();
@@ -193,11 +203,11 @@ pub const VM = struct {
                 },
                 .get_local, .get_local_long => {
                     const slot = if (instruction == .get_local) self.readU8() else self.readU24();
-                    self.stack.push(self.stack.stack[slot]);
+                    self.stack.push(frame.slots[slot]);
                 },
                 .set_local, .set_local_long => {
                     const slot = if (instruction == .set_local) self.readU8() else self.readU24();
-                    self.stack.stack[slot] = self.stack.peek(0);
+                    frame.slots[slot] = self.stack.peek(0);
                 },
                 .get_global, .get_global_long => {
                     const constant_value = if (instruction == .get_global) self.readConstant() else self.readConstantLong();
@@ -206,7 +216,7 @@ pub const VM = struct {
 
                     if (!self.globals.get(name, &value)) {
                         self.runtimeError("Undefined variable '{s}'.", .{name.chars});
-                        return error.InterpretError;
+                        return error.RuntimeError;
                     }
 
                     self.stack.push(value);
@@ -243,38 +253,41 @@ pub const VM = struct {
                 .greater => try self.binaryOperation(.greater),
                 .jump => {
                     const offset = self.readU16();
-                    self.ip += offset;
+                    frame.ip += offset;
                 },
                 .jump_if_false => {
                     const offset = self.readU16();
 
                     if (self.stack.peek(0).isFalsey()) {
-                        self.ip += offset;
+                        frame.ip += offset;
                     }
                 },
                 .loop => {
                     const offset = self.readU16();
-                    self.ip -= offset;
+                    frame.ip -= offset;
                 },
                 .ret => {
                     self.assertStackEmpty();
                     return;
                 },
-                _ => return error.CompileError,
+                _ => return error.InterpretError,
             }
         }
     }
 
     fn assertStackEmpty(self: *Self) void {
-        assert(@intFromPtr(&self.stack.stack[0]) == @intFromPtr(self.stack.top));
+        const frame = self.getStackFrame();
+        assert(@intFromPtr(self.stack.top) == @intFromPtr(frame.slots) + @sizeOf(Value));
     }
 
     fn assertStackNotEmpty(self: *Self) void {
-        assert(@intFromPtr(self.stack.top) > @intFromPtr(&self.stack.stack[0]));
+        const frame = self.getStackFrame();
+        assert(@intFromPtr(self.stack.top) > @intFromPtr(frame.slots) + @sizeOf(Value));
     }
 
     fn assertStackGreaterEqual(self: *Self, comptime length: usize) void {
-        assert(@intFromPtr(&self.stack.stack[0]) + length * @sizeOf(@TypeOf(&self.stack.stack[0])) <= @intFromPtr(self.stack.top));
+        const frame = self.getStackFrame();
+        assert(@intFromPtr(frame.slots) + @sizeOf(Value) + length * @sizeOf(Value) <= @intFromPtr(self.stack.top));
     }
 
     fn concatenate(self: *Self) !void {
@@ -311,11 +324,13 @@ pub const VM = struct {
     }
 
     pub fn readConstant(self: *Self) Value {
-        return self.chunk.getConstant(self.readU8());
+        const frame = self.getStackFrame();
+        return frame.function.chunk.getConstant(self.readU8());
     }
 
     pub fn readConstantLong(self: *Self) Value {
-        return self.chunk.getConstant(@intCast(self.readU24()));
+        const frame = self.getStackFrame();
+        return frame.function.chunk.getConstant(@intCast(self.readU24()));
     }
 
     fn readOpCode(self: *Self) OpCode {
@@ -336,22 +351,32 @@ pub const VM = struct {
     }
 
     fn readU8(self: *Self) u8 {
-        assert(self.getOffset() < self.chunk.code.count);
+        const frame = self.getStackFrame();
 
-        const byte = self.ip[0];
-        self.ip += 1;
+        assert(self.getOffset() < frame.function.chunk.code.count);
+
+        const byte = frame.ip[0];
+        frame.ip += 1;
         return byte;
     }
 
     fn getOffset(self: *Self) usize {
-        return @intFromPtr(self.ip) - @intFromPtr(&self.chunk.code.data[0]);
+        const frame = self.getStackFrame();
+        return @intFromPtr(frame.ip) - @intFromPtr(&frame.function.chunk.code.data[0]);
+    }
+
+    fn getStackFrame(self: *Self) *CallFrame {
+        return &self.frames[self.frame_count - 1];
     }
 
     fn runtimeError(self: *Self, comptime format: []const u8, args: anytype) void {
         self.io.err(format, args);
         self.io.err("\n", .{});
 
-        const line = self.chunk.getLine(self.getOffset() - 1) catch unreachable;
+        const frame = self.getStackFrame();
+        const instruction = frame.ip - @intFromPtr(&frame.function.chunk.code.data[0]) - 1;
+        const line = frame.function.chunk.getLine(@intFromPtr(instruction)) catch unreachable;
+
         self.io.err("[line {}] in script\n", .{line});
         self.stack.reset();
     }
