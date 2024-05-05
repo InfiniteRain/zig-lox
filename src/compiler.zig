@@ -443,7 +443,7 @@ pub const Compiler = struct {
         compiler.beginScope();
         compiler.consume(.left_paren, "Expect '(' after function name.");
 
-        var current_function = self.current_function orelse unreachable;
+        var current_function = compiler.current_function orelse unreachable;
 
         if (!compiler.check(.right_paren)) {
             while (true) {

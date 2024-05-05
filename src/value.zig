@@ -31,6 +31,7 @@ pub const Value = union(enum) {
                         io.print("<script>", .{});
                     }
                 },
+                .native => io.print("<native fn>", .{}),
             },
         }
     }

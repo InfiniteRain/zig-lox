@@ -23,10 +23,14 @@ const alloc = memory_package.alloc;
 const freeObjects = memory_package.freeObjects;
 const object_package = @import("object.zig");
 const Obj = object_package.Obj;
+const NativeFn = object_package.NativeFn;
 const table_package = @import("table.zig");
 const Table = table_package.Table;
 const scanner_package = @import("scanner.zig");
 const Scanner = scanner_package.Scanner;
+const time = @cImport({
+    @cInclude("time.h");
+});
 
 pub const InterpretError = error{
     CompileError,
@@ -46,6 +50,16 @@ pub const CallFrame = struct {
     ip: [*]u8,
     slots: [*]Value,
 };
+
+fn clockNative(
+    arg_count: u8,
+    args: [*]Value,
+) Value {
+    _ = arg_count;
+    _ = args;
+
+    return .{ .number = @as(f64, @floatFromInt(time.clock())) / time.CLOCKS_PER_SEC };
+}
 
 const Stack = struct {
     const Self = @This();
@@ -102,7 +116,7 @@ pub const VM = struct {
     objects: ?*Obj,
 
     pub fn init(allocator: Allocator, io: *IoHandler) !Self {
-        return .{
+        var vm = VM{
             .allocator = allocator,
             .frames = undefined,
             .frame_count = 0,
@@ -112,6 +126,10 @@ pub const VM = struct {
             .globals = try Table.init(allocator),
             .objects = null,
         };
+
+        try vm.defineNative("clock", clockNative);
+
+        return vm;
     }
 
     pub fn deinit(self: *Self) void {
@@ -311,6 +329,13 @@ pub const VM = struct {
         if (callee == .obj) {
             switch (callee.obj.type) {
                 .function => return self.call(callee.obj.as(.function), arg_count),
+                .native => {
+                    const native = callee.obj.as(.native);
+                    const result = native.function(arg_count, self.stack.top - arg_count);
+                    self.stack.top -= arg_count + 1;
+                    self.stack.push(result);
+                    return;
+                },
                 else => {},
             }
         }
@@ -436,6 +461,14 @@ pub const VM = struct {
         }
 
         self.stack.reset();
+    }
+
+    fn defineNative(self: *Self, name: []const u8, function: NativeFn) !void {
+        self.stack.push(.{ .obj = &(try Obj.String.fromBufAlloc(self.allocator, name, self)).obj });
+        self.stack.push(.{ .obj = &(try Obj.Native.allocNew(self.allocator, function, self)).obj });
+        _ = try self.globals.set(self.stack.stack[0].obj.as(.string), self.stack.stack[1]);
+        _ = self.stack.pop();
+        _ = self.stack.pop();
     }
 };
 

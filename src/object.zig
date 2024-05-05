@@ -12,17 +12,21 @@ const VM = vm_package.VM;
 const chunk_package = @import("chunk.zig");
 const Chunk = chunk_package.Chunk;
 
+pub const NativeFn = *const fn (u8, [*]Value) Value;
+
 pub const Obj = struct {
     const Self = @This();
 
     pub const Type = enum {
         string,
         function,
+        native,
 
         pub fn TypeStruct(comptime _type: Type) type {
             return switch (_type) {
                 .string => String,
                 .function => Function,
+                .native => Native,
             };
         }
     };
@@ -101,6 +105,17 @@ pub const Obj = struct {
         }
     };
 
+    pub const Native = struct {
+        obj: Self,
+        function: NativeFn,
+
+        pub fn allocNew(allocator: Allocator, nativeFn: NativeFn, vm: *VM) !*Native {
+            const native_obj = (try Self.fromTypeAlloc(.native, allocator, vm)).as(.native);
+            native_obj.function = nativeFn;
+            return native_obj;
+        }
+    };
+
     type: Type,
     next: ?*Self,
 
@@ -115,6 +130,9 @@ pub const Obj = struct {
                 const function = self.as(.function);
                 function.chunk.deinit();
                 destroy(allocator, self.as(.function));
+            },
+            .native => {
+                destroy(allocator, self.as(.native));
             },
         }
     }
