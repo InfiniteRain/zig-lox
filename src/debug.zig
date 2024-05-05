@@ -35,6 +35,7 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
     const instruction = chunk.code.data[offset];
 
     return switch (@as(OpCode, @enumFromInt(instruction))) {
+        .call => byteInstruction("CALL", chunk, offset, io),
         .ret => simpleInstruction("RET", offset, io),
         .loop => jumpInstruction("LOOP", -1, chunk, offset, io),
         .constant => constantInstruction(chunk, "CONSTANT", offset, io),

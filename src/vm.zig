@@ -126,19 +126,12 @@ pub const VM = struct {
         const function = try compiler.compile(scanner);
 
         self.stack.push(.{ .obj = &function.obj });
-
-        const frame = &self.frames[self.frame_count];
-        frame.function = function;
-        frame.ip = @ptrCast(function.chunk.code.data);
-        frame.slots = @ptrCast(self.stack.stack);
-
-        self.frame_count += 1;
-
+        try self.call(function, 0);
         try self.run();
     }
 
     fn run(self: *Self) !void {
-        const frame = self.getStackFrame();
+        var frame = self.getStackFrame();
 
         while (true) {
             if (comptime trace_execution) {
@@ -269,28 +262,61 @@ pub const VM = struct {
                     const offset = self.readU16();
                     frame.ip -= offset;
                 },
+                .call => {
+                    const arg_count = self.readU8();
+                    try self.callValue(self.stack.peek(arg_count), arg_count);
+                    frame = &self.frames[self.frame_count - 1];
+                },
                 .ret => {
-                    self.assertStackEmpty();
-                    return;
+                    const result = self.stack.pop();
+                    self.frame_count -= 1;
+
+                    if (self.frame_count == 0) {
+                        _ = self.stack.pop();
+                        return;
+                    }
+
+                    self.stack.top = frame.slots;
+                    self.stack.push(result);
+                    frame = &self.frames[self.frame_count - 1];
                 },
                 _ => return error.InterpretError,
             }
         }
     }
 
-    fn assertStackEmpty(self: *Self) void {
-        const frame = self.getStackFrame();
-        assert(@intFromPtr(self.stack.top) == @intFromPtr(frame.slots) + @sizeOf(Value));
+    pub fn call(self: *Self, function: *Obj.Function, arg_count: u8) !void {
+        if (arg_count != function.arity) {
+            self.runtimeError("Expected {} arguments but got {}.", .{
+                function.arity,
+                arg_count,
+            });
+            return error.InterpretError;
+        }
+
+        if (self.frame_count == max_frames) {
+            self.runtimeError("Stack overflow.", .{});
+            return error.InterpretError;
+        }
+
+        const frame = &self.frames[self.frame_count];
+        frame.function = function;
+        frame.ip = @ptrCast(function.chunk.code.data);
+        frame.slots = self.stack.top - arg_count - 1;
+
+        self.frame_count += 1;
     }
 
-    fn assertStackNotEmpty(self: *Self) void {
-        const frame = self.getStackFrame();
-        assert(@intFromPtr(self.stack.top) > @intFromPtr(frame.slots) + @sizeOf(Value));
-    }
+    pub fn callValue(self: *Self, callee: Value, arg_count: u8) !void {
+        if (callee == .obj) {
+            switch (callee.obj.type) {
+                .function => return self.call(callee.obj.as(.function), arg_count),
+                else => {},
+            }
+        }
 
-    fn assertStackGreaterEqual(self: *Self, comptime length: usize) void {
-        const frame = self.getStackFrame();
-        assert(@intFromPtr(frame.slots) + @sizeOf(Value) + length * @sizeOf(Value) <= @intFromPtr(self.stack.top));
+        self.runtimeError("Can only call functions and classes.", .{});
+        return error.RuntimeError;
     }
 
     fn concatenate(self: *Self) !void {
@@ -372,15 +398,43 @@ pub const VM = struct {
         return &self.frames[self.frame_count - 1];
     }
 
+    fn assertStackEmpty(self: *Self) void {
+        const frame = self.getStackFrame();
+        assert(@intFromPtr(self.stack.top) == @intFromPtr(frame.slots) + @sizeOf(Value));
+    }
+
+    fn assertStackNotEmpty(self: *Self) void {
+        const frame = self.getStackFrame();
+        assert(@intFromPtr(self.stack.top) > @intFromPtr(frame.slots) + @sizeOf(Value));
+    }
+
+    fn assertStackGreaterEqual(self: *Self, comptime length: usize) void {
+        const frame = self.getStackFrame();
+        assert(@intFromPtr(frame.slots) + @sizeOf(Value) + length * @sizeOf(Value) <= @intFromPtr(self.stack.top));
+    }
+
     fn runtimeError(self: *Self, comptime format: []const u8, args: anytype) void {
         self.io.err(format, args);
         self.io.err("\n", .{});
 
-        const frame = self.getStackFrame();
-        const instruction = frame.ip - @intFromPtr(&frame.function.chunk.code.data[0]) - 1;
-        const line = frame.function.chunk.getLine(@intFromPtr(instruction)) catch unreachable;
+        var i = self.frame_count;
 
-        self.io.err("[line {}] in script\n", .{line});
+        while (i > 0) {
+            i -= 1;
+
+            const frame = &self.frames[i];
+            const function = frame.function;
+            const instruction = @intFromPtr(frame.ip) - @intFromPtr(&function.chunk.code.data[0]) - 1;
+
+            self.io.err("[line {}] in ", .{function.chunk.lines.get(instruction) catch unreachable});
+
+            if (function.name) |name| {
+                self.io.err("{s}()\n", .{name.chars});
+            } else {
+                self.io.err("script\n", .{});
+            }
+        }
+
         self.stack.reset();
     }
 };

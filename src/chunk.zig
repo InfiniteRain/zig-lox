@@ -23,6 +23,7 @@ const Obj = object_packge.Obj;
 const OpCodeError = error{NotOperand};
 
 pub const OpCode = enum(u8) {
+    call,
     ret,
     constant,
     constant_long,

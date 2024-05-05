@@ -66,7 +66,7 @@ pub const Compiler = struct {
     const Self = @This();
     const rules = blk: {
         var array = EnumArray(TokenType, ParseRule).initUndefined();
-        array.set(.left_paren, .{ .prefix = Self.grouping });
+        array.set(.left_paren, .{ .prefix = Self.grouping, .infix = Self.call, .precedence = .call });
         array.set(.right_paren, .{});
         array.set(.left_brace, .{});
         array.set(.right_brace, .{});
@@ -269,7 +269,7 @@ pub const Compiler = struct {
                 try self.currentChunk().writeByte(byte, self.previous.line);
             },
             else => {
-                @compileError("expected byte to be of type OpCode or u8, found" ++ @typeName(ByteType));
+                @compileError("expected byte to be of type OpCode or u8, found " ++ @typeName(ByteType));
             },
         }
     }
@@ -308,7 +308,7 @@ pub const Compiler = struct {
     }
 
     fn emitReturn(self: *Self) CompilerError!void {
-        try self.emitByte(.ret);
+        try self.emitBytes(.{ .nil, .ret });
     }
 
     fn emitConstant(self: *Self, value: Value) CompilerError!void {
@@ -398,6 +398,13 @@ pub const Compiler = struct {
             .less_equal => try self.emitBytes(.{ .greater, .not }),
             else => unreachable,
         }
+    }
+
+    fn call(self: *Self, can_assign: bool) CompilerError!void {
+        _ = can_assign;
+
+        const arg_count = try self.argumentList();
+        try self.emitBytes(.{ .call, arg_count });
     }
 
     fn literal(self: *Self, can_assign: bool) CompilerError!void {
@@ -628,6 +635,20 @@ pub const Compiler = struct {
         try self.emitByte(.print);
     }
 
+    fn returnStatement(self: *Self) CompilerError!void {
+        if (self.function_type == .script) {
+            self.err("Can't return from top-level code.");
+        }
+
+        if (self.match(.semicolon)) {
+            try self.emitReturn();
+        } else {
+            try self.expression();
+            self.consume(.semicolon, "Expect ';' after return value.");
+            try self.emitByte(.ret);
+        }
+    }
+
     fn whileStatement(self: *Self) CompilerError!void {
         const old_loop_depth = self.loop_depth;
         const old_loop_start = self.loop_start;
@@ -705,6 +726,8 @@ pub const Compiler = struct {
             try self.forStatement();
         } else if (self.match(._if)) {
             try self.ifStatement();
+        } else if (self.match(._return)) {
+            try self.returnStatement();
         } else if (self.match(._switch)) {
             try self.switchStatement();
         } else if (self.match(._while)) {
@@ -944,6 +967,28 @@ pub const Compiler = struct {
         }
 
         try self.emitConstantIndex(global);
+    }
+
+    fn argumentList(self: *Self) CompilerError!u8 {
+        var arg_count: u8 = 0;
+
+        if (!self.check(.right_paren)) {
+            while (true) {
+                try self.expression();
+                arg_count += 1;
+
+                if (arg_count > 255) {
+                    self.err("Can't have more than 255 arguments.");
+                }
+
+                if (!self.match(.comma)) {
+                    break;
+                }
+            }
+        }
+
+        self.consume(.right_paren, "Expect ')' after arguments.");
+        return arg_count;
     }
 
     fn _and(self: *Self, can_assign: bool) CompilerError!void {
