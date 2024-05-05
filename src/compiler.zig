@@ -114,7 +114,7 @@ pub const Compiler = struct {
 
     allocator: Allocator,
 
-    function: ?*Obj.Function,
+    current_function: ?*Obj.Function,
     function_type: Obj.Function.Type,
 
     scanner: Scanner,
@@ -138,10 +138,10 @@ pub const Compiler = struct {
         vm: *VM,
         io: *IoHandler,
     ) !Self {
-        return .{
+        var compiler = Self{
             .allocator = allocator,
 
-            .function = null,
+            .current_function = try Obj.Function.allocNew(allocator, vm),
             .function_type = function_type,
 
             .scanner = undefined,
@@ -153,28 +153,14 @@ pub const Compiler = struct {
             .io = io,
 
             .locals = try DynamicArray(Local).init(allocator),
-            .local_count = undefined,
-            .scope_depth = undefined,
+            .local_count = 1,
+            .scope_depth = 0,
 
-            .loop_depth = undefined,
-            .loop_start = undefined,
+            .loop_depth = null,
+            .loop_start = 0,
         };
-    }
 
-    pub fn deinit(self: *Self) void {
-        self.locals.deinit();
-    }
-
-    pub fn compile(self: *Self, source: []const u8) CompilerError!*Obj.Function {
-        self.function = try Obj.Function.allocNew(self.allocator, self.vm);
-
-        self.local_count = 1;
-        self.scope_depth = 0;
-
-        self.loop_depth = null;
-        self.loop_start = 0;
-
-        const local = &self.locals.data[0];
+        const local = &compiler.locals.data[0];
 
         local.depth = 0;
         local.name = .{
@@ -185,7 +171,39 @@ pub const Compiler = struct {
         local.initialized = false;
         local.is_const = true;
 
-        self.scanner = Scanner.init(source, self.io);
+        return compiler;
+    }
+
+    pub fn initWithScanner(
+        allocator: Allocator,
+        compiler: *const Compiler,
+        function_type: Obj.Function.Type,
+        vm: *VM,
+        io: *IoHandler,
+    ) !Self {
+        var new_compiler = try Self.init(allocator, function_type, vm, io);
+        new_compiler.scanner = compiler.scanner;
+        new_compiler.current = compiler.current;
+        new_compiler.previous = compiler.previous;
+
+        if (function_type != .script) {
+            new_compiler.current_function.?.name = try Obj.String.fromBufAlloc(
+                allocator,
+                compiler.previous.lexeme,
+                vm,
+            );
+        }
+
+        return new_compiler;
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.locals.deinit();
+    }
+
+    pub fn compile(self: *Self, scanner: Scanner) CompilerError!*Obj.Function {
+        self.scanner = scanner;
+
         self.advance();
 
         while (!self.check(.eof)) {
@@ -197,7 +215,7 @@ pub const Compiler = struct {
     }
 
     fn currentChunk(self: *Self) *Chunk {
-        return &self.function.?.chunk;
+        return &self.current_function.?.chunk;
     }
 
     fn advance(self: *Self) void {
@@ -316,7 +334,7 @@ pub const Compiler = struct {
 
     fn endCompiler(self: *Self) CompilerError!*Obj.Function {
         try self.emitReturn();
-        const function = self.function;
+        const function = self.current_function;
 
         if (comptime exe_options.print_code) {
             disassembleChunk(
@@ -403,6 +421,57 @@ pub const Compiler = struct {
         }
 
         self.consume(.right_brace, "Expect '}' after block.");
+    }
+
+    fn fun(self: *Self, function_type: Obj.Function.Type) !void {
+        var compiler = try Compiler.initWithScanner(
+            self.allocator,
+            self,
+            function_type,
+            self.vm,
+            self.io,
+        );
+        defer compiler.deinit();
+
+        compiler.beginScope();
+        compiler.consume(.left_paren, "Expect '(' after function name.");
+
+        var current_function = self.current_function orelse unreachable;
+
+        if (!compiler.check(.right_paren)) {
+            while (true) {
+                current_function.arity += 1;
+
+                if (current_function.arity > 255) {
+                    compiler.errAtCurrent("Can't have more than 255 parameters.");
+                }
+
+                const constant = try compiler.parseVariable(false, "Expect parameter name.");
+                try compiler.defineVariable(constant);
+
+                if (!compiler.match(.comma)) {
+                    break;
+                }
+            }
+        }
+
+        compiler.consume(.right_paren, "Expect ')' after parameters.");
+        compiler.consume(.left_brace, "Expect '{' before function body.");
+        try compiler.block();
+
+        var final_function = try compiler.endCompiler();
+        try self.currentChunk().writeConstant(.{ .obj = &final_function.obj }, self.previous.line);
+
+        self.scanner = compiler.scanner;
+        self.previous = compiler.previous;
+        self.current = compiler.current;
+    }
+
+    fn funDeclaration(self: *Self) CompilerError!void {
+        const global = try self.parseVariable(false, "Expect function name.");
+        self.markInitialized();
+        try self.fun(.function);
+        try self.defineVariable(global);
     }
 
     fn varDeclaration(self: *Self) CompilerError!void {
@@ -614,7 +683,9 @@ pub const Compiler = struct {
     }
 
     fn declaration(self: *Self) CompilerError!void {
-        if (self.match(._var)) {
+        if (self.match(.fun)) {
+            try self.funDeclaration();
+        } else if (self.match(._var)) {
             try self.varDeclaration();
         } else if (self.match(._const)) {
             try self.constDeclaration();
@@ -853,6 +924,10 @@ pub const Compiler = struct {
     }
 
     fn markInitialized(self: *Self) void {
+        if (self.scope_depth == 0) {
+            return;
+        }
+
         self.locals.data[self.local_count - 1].initialized = true;
     }
 

@@ -25,6 +25,8 @@ const object_package = @import("object.zig");
 const Obj = object_package.Obj;
 const table_package = @import("table.zig");
 const Table = table_package.Table;
+const scanner_package = @import("scanner.zig");
+const Scanner = scanner_package.Scanner;
 
 pub const InterpretError = error{
     CompileError,
@@ -120,7 +122,8 @@ pub const VM = struct {
     }
 
     pub fn interpret(self: *Self, source: []const u8, compiler: *Compiler) !void {
-        const function = try compiler.compile(source);
+        const scanner = Scanner.init(source, self.io);
+        const function = try compiler.compile(scanner);
 
         self.stack.push(.{ .obj = &function.obj });
 
