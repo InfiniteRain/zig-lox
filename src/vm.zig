@@ -127,7 +127,7 @@ pub const VM = struct {
             .objects = null,
         };
 
-        try vm.defineNative("clock", clockNative);
+        try vm.defineNative("clock", clockNative, 0);
 
         return vm;
     }
@@ -331,6 +331,15 @@ pub const VM = struct {
                 .function => return self.call(callee.obj.as(.function), arg_count),
                 .native => {
                     const native = callee.obj.as(.native);
+
+                    if (arg_count != native.arity) {
+                        self.runtimeError("Expected {} arguments but got {}.", .{
+                            native.arity,
+                            arg_count,
+                        });
+                        return error.InterpretError;
+                    }
+
                     const result = native.function(arg_count, self.stack.top - arg_count);
                     self.stack.top -= arg_count + 1;
                     self.stack.push(result);
@@ -463,9 +472,14 @@ pub const VM = struct {
         self.stack.reset();
     }
 
-    fn defineNative(self: *Self, name: []const u8, function: NativeFn) !void {
+    fn defineNative(
+        self: *Self,
+        name: []const u8,
+        function: NativeFn,
+        arity: u8,
+    ) !void {
         self.stack.push(.{ .obj = &(try Obj.String.fromBufAlloc(self.allocator, name, self)).obj });
-        self.stack.push(.{ .obj = &(try Obj.Native.allocNew(self.allocator, function, self)).obj });
+        self.stack.push(.{ .obj = &(try Obj.Native.allocNew(self.allocator, function, arity, self)).obj });
         _ = try self.globals.set(self.stack.stack[0].obj.as(.string), self.stack.stack[1]);
         _ = self.stack.pop();
         _ = self.stack.pop();

@@ -108,10 +108,12 @@ pub const Obj = struct {
     pub const Native = struct {
         obj: Self,
         function: NativeFn,
+        arity: u8,
 
-        pub fn allocNew(allocator: Allocator, nativeFn: NativeFn, vm: *VM) !*Native {
+        pub fn allocNew(allocator: Allocator, nativeFn: NativeFn, arity: u8, vm: *VM) !*Native {
             const native_obj = (try Self.fromTypeAlloc(.native, allocator, vm)).as(.native);
             native_obj.function = nativeFn;
+            native_obj.arity = arity;
             return native_obj;
         }
     };
