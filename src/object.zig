@@ -23,12 +23,14 @@ pub const Obj = struct {
         string,
         function,
         native,
+        closure,
 
         pub fn TypeStruct(comptime _type: Type) type {
             return switch (_type) {
                 .string => String,
                 .function => Function,
                 .native => Native,
+                .closure => Closure,
             };
         }
     };
@@ -120,6 +122,17 @@ pub const Obj = struct {
         }
     };
 
+    pub const Closure = struct {
+        obj: Self,
+        function: *Function,
+
+        pub fn allocNew(allocator: Allocator, function: *Function, vm: *VM) !*Closure {
+            const closure = (try Self.fromTypeAlloc(.closure, allocator, vm)).as(.closure);
+            closure.function = function;
+            return closure;
+        }
+    };
+
     type: Type,
     next: ?*Self,
 
@@ -137,6 +150,9 @@ pub const Obj = struct {
             },
             .native => {
                 destroy(allocator, self.as(.native));
+            },
+            .closure => {
+                destroy(allocator, self.as(.closure));
             },
         }
     }

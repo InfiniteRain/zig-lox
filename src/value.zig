@@ -24,15 +24,22 @@ pub const Value = union(enum) {
                 .string => io.print("{s}", .{self.obj.as(.string).chars}),
                 .function => {
                     const function = self.obj.as(.function);
-
-                    if (function.name) |name| {
-                        io.print("<fn {s}>", .{name.chars});
-                    } else {
-                        io.print("<script>", .{});
-                    }
+                    Self.printFunction(function, io);
                 },
                 .native => io.print("<native fn>", .{}),
+                .closure => {
+                    const function = self.obj.as(.closure).function;
+                    Self.printFunction(function, io);
+                },
             },
+        }
+    }
+
+    fn printFunction(function: *Obj.Function, io: *IoHandler) void {
+        if (function.name) |name| {
+            io.print("<fn {s}>", .{name.chars});
+        } else {
+            io.print("<script>", .{});
         }
     }
 
