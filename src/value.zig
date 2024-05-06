@@ -31,6 +31,7 @@ pub const Value = union(enum) {
                     const function = self.obj.as(.closure).function;
                     Self.printFunction(function, io);
                 },
+                .upvalue => io.print("upvalue", .{}),
             },
         }
     }

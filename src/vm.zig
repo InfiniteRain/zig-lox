@@ -176,6 +176,15 @@ pub const VM = struct {
                     const function = value.obj.as(.function);
                     const closure = try Obj.Closure.allocNew(self.allocator, function, self);
                     self.stack.push(.{ .obj = &closure.obj });
+
+                    var i: usize = 0;
+
+                    while (i < closure.upvalue_count) : (i += 1) {
+                        const is_local = self.readU8();
+                        const index = self.readU8();
+
+                        closure.upvalues[i] = if (is_local == 1) try self.captureUpvalue(&(frame.slots + index)[0]) else frame.closure.upvalues[index];
+                    }
                 },
                 .constant, .constant_long => {
                     const value = if (instruction == .constant) self.readConstant() else self.readConstantLong();
@@ -255,6 +264,14 @@ pub const VM = struct {
                     const name = constant_value.obj.as(.string);
                     _ = try self.globals.set(name, self.stack.peek(0));
                     _ = self.stack.pop();
+                },
+                .get_upvalue => {
+                    const slot = self.readU8();
+                    self.stack.push(frame.closure.upvalues[slot].location.*);
+                },
+                .set_upvalue => {
+                    const slot = self.readU8();
+                    frame.closure.upvalues[slot].location.* = self.stack.peek(0);
                 },
                 .subtract => try self.binaryOperation(.subtract),
                 .multiply => try self.binaryOperation(.multiply),
@@ -362,6 +379,11 @@ pub const VM = struct {
 
         self.runtimeError("Can only call functions and classes.", .{});
         return error.RuntimeError;
+    }
+
+    fn captureUpvalue(self: *Self, local: *Value) !*Obj.Upvalue {
+        const created_upvalue = try Obj.Upvalue.allocNew(self.allocator, local, self);
+        return created_upvalue.obj.as(.upvalue);
     }
 
     fn concatenate(self: *Self) !void {

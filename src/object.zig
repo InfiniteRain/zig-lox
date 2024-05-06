@@ -24,6 +24,7 @@ pub const Obj = struct {
         function,
         native,
         closure,
+        upvalue,
 
         pub fn TypeStruct(comptime _type: Type) type {
             return switch (_type) {
@@ -31,6 +32,7 @@ pub const Obj = struct {
                 .function => Function,
                 .native => Native,
                 .closure => Closure,
+                .upvalue => Upvalue,
             };
         }
     };
@@ -91,6 +93,7 @@ pub const Obj = struct {
     pub const Function = struct {
         obj: Self,
         arity: u16,
+        upvalue_count: usize,
         chunk: Chunk,
         name: ?*String,
 
@@ -102,6 +105,7 @@ pub const Obj = struct {
         pub fn allocNew(allocator: Allocator, vm: *VM) !*Function {
             const function_obj = (try Self.fromTypeAlloc(.function, allocator, vm)).as(.function);
             function_obj.arity = 0;
+            function_obj.upvalue_count = 0;
             function_obj.name = null;
             function_obj.chunk = try Chunk.init(allocator);
 
@@ -125,11 +129,34 @@ pub const Obj = struct {
     pub const Closure = struct {
         obj: Self,
         function: *Function,
+        upvalues: []*Upvalue,
+        upvalue_count: usize,
 
         pub fn allocNew(allocator: Allocator, function: *Function, vm: *VM) !*Closure {
+            const upvalues = try alloc(*Upvalue, allocator, function.upvalue_count);
+            var i: usize = 0;
+
+            while (i < function.upvalue_count) : (i += 1) {
+                upvalues[i] = undefined;
+            }
+
             const closure = (try Self.fromTypeAlloc(.closure, allocator, vm)).as(.closure);
             closure.function = function;
+            closure.upvalues = upvalues;
+            closure.upvalue_count = function.upvalue_count;
+
             return closure;
+        }
+    };
+
+    pub const Upvalue = struct {
+        obj: Self,
+        location: *Value,
+
+        pub fn allocNew(allocator: Allocator, slot: *Value, vm: *VM) !*Upvalue {
+            const upvalue = (try Self.fromTypeAlloc(.upvalue, allocator, vm)).as(.upvalue);
+            upvalue.location = slot;
+            return upvalue;
         }
     };
 
@@ -152,7 +179,12 @@ pub const Obj = struct {
                 destroy(allocator, self.as(.native));
             },
             .closure => {
+                const closure = self.as(.closure);
+                _free(allocator, closure.upvalues);
                 destroy(allocator, self.as(.closure));
+            },
+            .upvalue => {
+                destroy(allocator, self.as(.upvalue));
             },
         }
     }

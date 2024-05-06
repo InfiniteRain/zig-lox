@@ -62,6 +62,11 @@ pub const Local = struct {
     is_const: bool,
 };
 
+pub const Upvalue = struct {
+    index: usize,
+    is_local: bool,
+};
+
 pub const Compiler = struct {
     const Self = @This();
     const rules = blk: {
@@ -117,6 +122,7 @@ pub const Compiler = struct {
     current_function: ?*Obj.Function,
     function_type: Obj.Function.Type,
 
+    enclosing: ?*Compiler,
     scanner: Scanner,
     vm: *VM,
     current: Token,
@@ -127,6 +133,7 @@ pub const Compiler = struct {
 
     locals: DynamicArray(Local),
     local_count: usize,
+    upvalues: [256]Upvalue,
     scope_depth: usize,
 
     loop_depth: ?usize,
@@ -146,6 +153,7 @@ pub const Compiler = struct {
             .current_function = try Obj.Function.allocNew(allocator, vm),
             .function_type = function_type,
 
+            .enclosing = null,
             .scanner = undefined,
             .vm = vm,
             .current = blank_token,
@@ -156,6 +164,7 @@ pub const Compiler = struct {
 
             .locals = try DynamicArray(Local).init(allocator),
             .local_count = 1,
+            .upvalues = undefined,
             .scope_depth = 0,
 
             .loop_depth = null,
@@ -176,14 +185,15 @@ pub const Compiler = struct {
         return compiler;
     }
 
-    pub fn initWithScanner(
+    pub fn initWithEnclosing(
         allocator: Allocator,
-        compiler: *const Compiler,
+        compiler: *Compiler,
         function_type: Obj.Function.Type,
         vm: *VM,
         io: *IoHandler,
     ) !Self {
         var new_compiler = try Self.init(allocator, function_type, vm, io);
+        new_compiler.enclosing = compiler;
         new_compiler.scanner = compiler.scanner;
         new_compiler.current = compiler.current;
         new_compiler.previous = compiler.previous;
@@ -433,7 +443,7 @@ pub const Compiler = struct {
     }
 
     fn fun(self: *Self, function_type: Obj.Function.Type) !void {
-        var compiler = try Compiler.initWithScanner(
+        var compiler = try Compiler.initWithEnclosing(
             self.allocator,
             self,
             function_type,
@@ -469,11 +479,17 @@ pub const Compiler = struct {
         try compiler.block();
 
         var final_function = try compiler.endCompiler();
-        try self.currentChunk().writeClosure(.{ .obj = &final_function.obj }, self.previous.line);
-
         self.scanner = compiler.scanner;
         self.previous = compiler.previous;
         self.current = compiler.current;
+
+        try self.currentChunk().writeClosure(.{ .obj = &final_function.obj }, self.previous.line);
+
+        var i: usize = 0;
+
+        while (i < final_function.upvalue_count) : (i += 1) {
+            try self.emitBytes(.{ @as(u8, if (compiler.upvalues[i].is_local) 1 else 0), @as(u8, @intCast(compiler.upvalues[i].index)) });
+        }
     }
 
     fn funDeclaration(self: *Self) CompilerError!void {
@@ -774,7 +790,7 @@ pub const Compiler = struct {
     }
 
     fn namedVariable(self: *Self, name: Token, can_assign: bool) CompilerError!void {
-        const arg = self.resolveLocal(&name);
+        var arg = self.resolveLocal(&name);
         var constant_index: usize = undefined;
         var get_op: OpCode = undefined;
         var set_op: OpCode = undefined;
@@ -786,12 +802,21 @@ pub const Compiler = struct {
             set_op = if (constant_index < 0xFF) .set_local else .set_local_long;
             is_const = result[1];
         } else {
-            const result = try self.identifierConstant(&name, .no_change);
+            arg = self.resolveUpvalue(&name);
 
-            constant_index = result[0];
-            get_op = if (constant_index < 0xFF) .get_global else .get_global_long;
-            set_op = if (constant_index < 0xFF) .set_global else .set_global_long;
-            is_const = result[1];
+            if (arg) |result| {
+                constant_index = result[0];
+                get_op = .get_upvalue;
+                set_op = .set_upvalue;
+                is_const = result[1];
+            } else {
+                const result = try self.identifierConstant(&name, .no_change);
+
+                constant_index = result[0];
+                get_op = if (constant_index < 0xFF) .get_global else .get_global_long;
+                set_op = if (constant_index < 0xFF) .set_global else .set_global_long;
+                is_const = result[1];
+            }
         }
 
         if (can_assign and self.match(.equal)) {
@@ -868,9 +893,11 @@ pub const Compiler = struct {
 
     fn resolveLocal(self: *Self, name: *const Token) ?struct { usize, bool } {
         if (self.local_count > 0) {
-            var i: usize = self.local_count - 1;
+            var i: usize = self.local_count;
 
-            while (i >= 0) : (i -= 1) {
+            while (true) {
+                i -= 1;
+
                 const local = &self.locals.data[i];
 
                 if (name.lexemeEquals(&local.name)) {
@@ -885,6 +912,46 @@ pub const Compiler = struct {
                     break;
                 }
             }
+        }
+
+        return null;
+    }
+
+    fn addUpvalue(self: *Self, index: usize, is_local: bool) usize {
+        const upvalue_count = self.current_function.?.upvalue_count;
+        var i: usize = 0;
+
+        while (i < upvalue_count) : (i += 1) {
+            const upvalue = &self.upvalues[i];
+
+            if (upvalue.index == index and upvalue.is_local == is_local) {
+                return i;
+            }
+        }
+
+        if (upvalue_count == 256) {
+            self.err("Too many closure variables in function.");
+            return 0;
+        }
+
+        self.upvalues[upvalue_count].is_local = is_local;
+        self.upvalues[upvalue_count].index = index;
+        self.current_function.?.upvalue_count += 1;
+        return upvalue_count;
+    }
+
+    fn resolveUpvalue(self: *Self, name: *const Token) ?struct { usize, bool } {
+        const enclosing = self.enclosing orelse return null;
+        const local_opt = enclosing.resolveLocal(name);
+
+        if (local_opt) |local| {
+            return .{ self.addUpvalue(local[0], true), local[1] };
+        }
+
+        const upvalue_opt = enclosing.resolveUpvalue(name);
+
+        if (upvalue_opt) |upvalue| {
+            return .{ self.addUpvalue(upvalue[0], false), upvalue[1] };
         }
 
         return null;
