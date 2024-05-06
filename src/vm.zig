@@ -24,6 +24,7 @@ const freeObjects = memory_package.freeObjects;
 const object_package = @import("object.zig");
 const Obj = object_package.Obj;
 const NativeFn = object_package.NativeFn;
+const NativeResult = object_package.NativeResult;
 const table_package = @import("table.zig");
 const Table = table_package.Table;
 const scanner_package = @import("scanner.zig");
@@ -31,11 +32,6 @@ const Scanner = scanner_package.Scanner;
 const time = @cImport({
     @cInclude("time.h");
 });
-
-pub const InterpretError = error{
-    CompileError,
-    RuntimeError,
-};
 
 pub const BinaryOperation = enum {
     subtract,
@@ -54,11 +50,11 @@ pub const CallFrame = struct {
 fn clockNative(
     arg_count: u8,
     args: [*]Value,
-) Value {
+) NativeResult {
     _ = arg_count;
     _ = args;
 
-    return .{ .number = @as(f64, @floatFromInt(time.clock())) / time.CLOCKS_PER_SEC };
+    return .{ .ok = .{ .number = @as(f64, @floatFromInt(time.clock())) / time.CLOCKS_PER_SEC } };
 }
 
 const Stack = struct {
@@ -202,7 +198,7 @@ pub const VM = struct {
                         self.stack.push(.{ .number = a + b });
                     } else {
                         self.runtimeError("Operands must be two numbers or two strings.", .{});
-                        return InterpretError.RuntimeError;
+                        return error.RuntimeError;
                     }
                 },
                 .nil => self.stack.push(.nil),
@@ -298,7 +294,7 @@ pub const VM = struct {
                     self.stack.push(result);
                     frame = &self.frames[self.frame_count - 1];
                 },
-                _ => return error.InterpretError,
+                _ => return error.RuntimeError,
             }
         }
     }
@@ -309,12 +305,12 @@ pub const VM = struct {
                 function.arity,
                 arg_count,
             });
-            return error.InterpretError;
+            return error.RuntimeError;
         }
 
         if (self.frame_count == max_frames) {
             self.runtimeError("Stack overflow.", .{});
-            return error.InterpretError;
+            return error.RuntimeError;
         }
 
         const frame = &self.frames[self.frame_count];
@@ -337,12 +333,18 @@ pub const VM = struct {
                             native.arity,
                             arg_count,
                         });
-                        return error.InterpretError;
+                        return error.RuntimeError;
                     }
 
                     const result = native.function(arg_count, self.stack.top - arg_count);
+
+                    if (result == .err) {
+                        self.runtimeError("{s}", .{result.err});
+                        return error.RuntimeError;
+                    }
+
                     self.stack.top -= arg_count + 1;
-                    self.stack.push(result);
+                    self.stack.push(result.ok);
                     return;
                 },
                 else => {},
@@ -448,6 +450,7 @@ pub const VM = struct {
     }
 
     fn runtimeError(self: *Self, comptime format: []const u8, args: anytype) void {
+        self.io.err("Error: ", .{});
         self.io.err(format, args);
         self.io.err("\n", .{});
 

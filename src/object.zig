@@ -12,7 +12,9 @@ const VM = vm_package.VM;
 const chunk_package = @import("chunk.zig");
 const Chunk = chunk_package.Chunk;
 
-pub const NativeFn = *const fn (u8, [*]Value) Value;
+pub const NativeResult = union(enum) { ok: Value, err: []const u8 };
+
+pub const NativeFn = *const fn (u8, [*]Value) NativeResult;
 
 pub const Obj = struct {
     const Self = @This();
