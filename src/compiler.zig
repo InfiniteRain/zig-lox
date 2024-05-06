@@ -60,6 +60,7 @@ pub const Local = struct {
     depth: usize,
     initialized: bool,
     is_const: bool,
+    is_captured: bool,
 };
 
 pub const Upvalue = struct {
@@ -181,6 +182,7 @@ pub const Compiler = struct {
         };
         local.initialized = false;
         local.is_const = true;
+        local.is_captured = false;
 
         return compiler;
     }
@@ -367,7 +369,11 @@ pub const Compiler = struct {
         self.scope_depth -= 1;
 
         while (self.local_count > 0 and self.locals.data[self.local_count - 1].depth > self.scope_depth) {
-            try self.emitByte(.pop);
+            if (self.locals.data[self.local_count - 1].is_captured) {
+                try self.emitByte(.close_upvalue);
+            } else {
+                try self.emitByte(.pop);
+            }
             self.local_count -= 1;
         }
     }
@@ -945,6 +951,7 @@ pub const Compiler = struct {
         const local_opt = enclosing.resolveLocal(name);
 
         if (local_opt) |local| {
+            enclosing.locals.data[local[0]].is_captured = true;
             return .{ self.addUpvalue(local[0], true), local[1] };
         }
 
@@ -968,6 +975,7 @@ pub const Compiler = struct {
             .depth = self.scope_depth,
             .initialized = false,
             .is_const = is_const,
+            .is_captured = false,
         };
 
         try self.locals.set(self.local_count, local);

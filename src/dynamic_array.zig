@@ -45,7 +45,8 @@ pub fn DynamicArray(comptime T: type) type {
             assert(index >= 0 and index <= self.data.len);
 
             if (index == self.data.len) {
-                try self.push(undefined);
+                const new_capacity = growCapacity(self.data.len);
+                self.data = try realloc(self.allocator, self.data, new_capacity);
             }
 
             self.data[index] = value;

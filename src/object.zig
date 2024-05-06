@@ -152,10 +152,14 @@ pub const Obj = struct {
     pub const Upvalue = struct {
         obj: Self,
         location: *Value,
+        closed: Value,
+        next: ?*Upvalue,
 
         pub fn allocNew(allocator: Allocator, slot: *Value, vm: *VM) !*Upvalue {
             const upvalue = (try Self.fromTypeAlloc(.upvalue, allocator, vm)).as(.upvalue);
             upvalue.location = slot;
+            upvalue.closed = .nil;
+            upvalue.next = null;
             return upvalue;
         }
     };

@@ -27,6 +27,7 @@ pub const OpCode = enum(u8) {
     ret,
     closure,
     closure_long,
+    close_upvalue,
     constant,
     constant_long,
     negate,

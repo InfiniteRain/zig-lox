@@ -72,6 +72,7 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
 
             return new_offset;
         },
+        .close_upvalue => simpleInstruction("CLOSE_UPVALUE", offset, io),
         .loop => jumpInstruction("LOOP", -1, chunk, offset, io),
         .constant => constantInstruction(chunk, "CONSTANT", offset, io),
         .constant_long => constantLongInstruction(chunk, "CONSTANT_LONG", offset, io),

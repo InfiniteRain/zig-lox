@@ -108,6 +108,7 @@ pub const VM = struct {
     stack: Stack,
     io: *IoHandler,
     strings: Table,
+    open_upvalues: ?*Obj.Upvalue,
     globals: Table,
     objects: ?*Obj,
 
@@ -119,6 +120,7 @@ pub const VM = struct {
             .stack = try Stack.init(allocator),
             .io = io,
             .strings = try Table.init(allocator),
+            .open_upvalues = null,
             .globals = try Table.init(allocator),
             .objects = null,
         };
@@ -183,7 +185,10 @@ pub const VM = struct {
                         const is_local = self.readU8();
                         const index = self.readU8();
 
-                        closure.upvalues[i] = if (is_local == 1) try self.captureUpvalue(&(frame.slots + index)[0]) else frame.closure.upvalues[index];
+                        closure.upvalues[i] = if (is_local == 1)
+                            try self.captureUpvalue(&(frame.slots + index)[0])
+                        else
+                            frame.closure.upvalues[index];
                     }
                 },
                 .constant, .constant_long => {
@@ -307,8 +312,13 @@ pub const VM = struct {
                     try self.callValue(self.stack.peek(arg_count), arg_count);
                     frame = &self.frames[self.frame_count - 1];
                 },
+                .close_upvalue => {
+                    self.closeUpvalues(&(self.stack.top - 1)[0]);
+                    _ = self.stack.pop();
+                },
                 .ret => {
                     const result = self.stack.pop();
+                    self.closeUpvalues(&frame.slots[0]);
                     self.frame_count -= 1;
 
                     if (self.frame_count == 0) {
@@ -382,8 +392,37 @@ pub const VM = struct {
     }
 
     fn captureUpvalue(self: *Self, local: *Value) !*Obj.Upvalue {
+        var prev_upvalue_opt: ?*Obj.Upvalue = null;
+        var upvalue_opt = self.open_upvalues;
+
+        while (upvalue_opt != null and @intFromPtr(upvalue_opt.?.location) > @intFromPtr(local)) {
+            prev_upvalue_opt = upvalue_opt;
+            upvalue_opt = upvalue_opt.?.next;
+        }
+
+        if (upvalue_opt != null and upvalue_opt.?.location == local) {
+            return upvalue_opt.?;
+        }
+
         const created_upvalue = try Obj.Upvalue.allocNew(self.allocator, local, self);
+        created_upvalue.next = upvalue_opt;
+
+        if (prev_upvalue_opt == null) {
+            self.open_upvalues = created_upvalue;
+        } else {
+            prev_upvalue_opt.?.next = created_upvalue;
+        }
+
         return created_upvalue.obj.as(.upvalue);
+    }
+
+    fn closeUpvalues(self: *Self, last: *Value) void {
+        while (self.open_upvalues != null and @intFromPtr(self.open_upvalues.?.location) >= @intFromPtr(last)) {
+            var upvalue = self.open_upvalues.?;
+            upvalue.closed = upvalue.location.*;
+            upvalue.location = &upvalue.closed;
+            self.open_upvalues = upvalue.next;
+        }
     }
 
     fn concatenate(self: *Self) !void {
