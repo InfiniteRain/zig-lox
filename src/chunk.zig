@@ -25,6 +25,8 @@ const OpCodeError = error{NotOperand};
 pub const OpCode = enum(u8) {
     call,
     ret,
+    closure,
+    closure_long,
     constant,
     constant_long,
     negate,
@@ -106,9 +108,21 @@ pub const Chunk = struct {
         const index = try self.addConstant(value);
 
         if (index < 0xFF) {
-            try self.writeOpCode(OpCode.constant, line);
+            try self.writeOpCode(.constant, line);
         } else {
-            try self.writeOpCode(OpCode.constant_long, line);
+            try self.writeOpCode(.constant_long, line);
+        }
+
+        try self.writeConstantIndex(index, line);
+    }
+
+    pub fn writeClosure(self: *Self, value: Value, line: u64) !void {
+        const index = try self.addConstant(value);
+
+        if (index < 0xFF) {
+            try self.writeOpCode(.closure, line);
+        } else {
+            try self.writeOpCode(.closure_long, line);
         }
 
         try self.writeConstantIndex(index, line);

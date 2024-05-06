@@ -33,10 +33,30 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
     }
 
     const instruction = chunk.code.data[offset];
+    const op_code = @as(OpCode, @enumFromInt(instruction));
 
-    return switch (@as(OpCode, @enumFromInt(instruction))) {
+    return switch (op_code) {
         .call => byteInstruction("CALL", chunk, offset, io),
         .ret => simpleInstruction("RET", offset, io),
+        .closure, .closure_long => {
+            var new_offset = offset + 1;
+
+            var constant: u24 = undefined;
+
+            if (op_code == .closure) {
+                constant = chunk.code.data[new_offset];
+                new_offset += 1;
+            } else {
+                constant = readU24(chunk, new_offset);
+                new_offset += 3;
+            }
+
+            io.print("{s: <18} {:0>4} ", .{ if (op_code == .closure) "CLOSURE" else "CLOSURE_LONG", constant });
+            chunk.constants.data[constant].print(io);
+            io.print("\n", .{});
+
+            return new_offset;
+        },
         .loop => jumpInstruction("LOOP", -1, chunk, offset, io),
         .constant => constantInstruction(chunk, "CONSTANT", offset, io),
         .constant_long => constantLongInstruction(chunk, "CONSTANT_LONG", offset, io),
@@ -105,6 +125,14 @@ fn byteInstruction(name: []const u8, chunk: *const Chunk, offset: usize, io: *Io
     const slot = chunk.code.data[offset + 1];
     io.print("{s: <18} {:0>4}\n", .{ name, slot });
     return offset + 2;
+}
+
+fn readU24(chunk: *const Chunk, offset: usize) u24 {
+    const left: u24 = @intCast(chunk.code.data[offset]);
+    const middle: u24 = @intCast(chunk.code.data[offset + 1]);
+    const right: u24 = @intCast(chunk.code.data[offset + 2]);
+
+    return (left << 16) | (middle << 8) | right;
 }
 
 fn threeByteInstruction(name: []const u8, chunk: *const Chunk, offset: usize, io: *IoHandler) usize {

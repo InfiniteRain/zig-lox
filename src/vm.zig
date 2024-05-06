@@ -42,7 +42,7 @@ pub const BinaryOperation = enum {
 };
 
 pub const CallFrame = struct {
-    function: *Obj.Function,
+    closure: *Obj.Closure,
     ip: [*]u8,
     slots: [*]Value,
 };
@@ -140,7 +140,10 @@ pub const VM = struct {
         const function = try compiler.compile(scanner);
 
         self.stack.push(.{ .obj = &function.obj });
-        try self.call(function, 0);
+        const closure = try Obj.Closure.allocNew(self.allocator, function, self);
+        _ = self.stack.pop();
+        self.stack.push(.{ .obj = &closure.obj });
+        try self.call(closure, 0);
         try self.run();
     }
 
@@ -162,12 +165,18 @@ pub const VM = struct {
 
                 self.io.print("\n", .{});
 
-                _ = disassembleInstruction(&frame.function.chunk, self.getOffset(), self.io) catch unreachable;
+                _ = disassembleInstruction(&frame.closure.function.chunk, self.getOffset(), self.io) catch unreachable;
             }
 
             const instruction = self.readOpCode();
 
             switch (instruction) {
+                .closure, .closure_long => {
+                    const value = if (instruction == .closure) self.readConstant() else self.readConstantLong();
+                    const function = value.obj.as(.function);
+                    const closure = try Obj.Closure.allocNew(self.allocator, function, self);
+                    self.stack.push(.{ .obj = &closure.obj });
+                },
                 .constant, .constant_long => {
                     const value = if (instruction == .constant) self.readConstant() else self.readConstantLong();
                     self.stack.push(value);
@@ -299,10 +308,10 @@ pub const VM = struct {
         }
     }
 
-    pub fn call(self: *Self, function: *Obj.Function, arg_count: u8) !void {
-        if (arg_count != function.arity) {
+    pub fn call(self: *Self, closure: *Obj.Closure, arg_count: u8) !void {
+        if (arg_count != closure.function.arity) {
             self.runtimeError("Expected {} arguments but got {}.", .{
-                function.arity,
+                closure.function.arity,
                 arg_count,
             });
             return error.RuntimeError;
@@ -314,8 +323,8 @@ pub const VM = struct {
         }
 
         const frame = &self.frames[self.frame_count];
-        frame.function = function;
-        frame.ip = @ptrCast(function.chunk.code.data);
+        frame.closure = closure;
+        frame.ip = @ptrCast(closure.function.chunk.code.data);
         frame.slots = self.stack.top - arg_count - 1;
 
         self.frame_count += 1;
@@ -324,7 +333,7 @@ pub const VM = struct {
     pub fn callValue(self: *Self, callee: Value, arg_count: u8) !void {
         if (callee == .obj) {
             switch (callee.obj.type) {
-                .function => return self.call(callee.obj.as(.function), arg_count),
+                .closure => return self.call(callee.obj.as(.closure), arg_count),
                 .native => {
                     const native = callee.obj.as(.native);
 
@@ -390,12 +399,12 @@ pub const VM = struct {
 
     pub fn readConstant(self: *Self) Value {
         const frame = self.getStackFrame();
-        return frame.function.chunk.getConstant(self.readU8());
+        return frame.closure.function.chunk.getConstant(self.readU8());
     }
 
     pub fn readConstantLong(self: *Self) Value {
         const frame = self.getStackFrame();
-        return frame.function.chunk.getConstant(@intCast(self.readU24()));
+        return frame.closure.function.chunk.getConstant(@intCast(self.readU24()));
     }
 
     fn readOpCode(self: *Self) OpCode {
@@ -418,7 +427,7 @@ pub const VM = struct {
     fn readU8(self: *Self) u8 {
         const frame = self.getStackFrame();
 
-        assert(self.getOffset() < frame.function.chunk.code.count);
+        assert(self.getOffset() < frame.closure.function.chunk.code.count);
 
         const byte = frame.ip[0];
         frame.ip += 1;
@@ -427,7 +436,7 @@ pub const VM = struct {
 
     fn getOffset(self: *Self) usize {
         const frame = self.getStackFrame();
-        return @intFromPtr(frame.ip) - @intFromPtr(&frame.function.chunk.code.data[0]);
+        return @intFromPtr(frame.ip) - @intFromPtr(&frame.closure.function.chunk.code.data[0]);
     }
 
     fn getStackFrame(self: *Self) *CallFrame {
@@ -460,7 +469,7 @@ pub const VM = struct {
             i -= 1;
 
             const frame = &self.frames[i];
-            const function = frame.function;
+            const function = frame.closure.function;
             const instruction = @intFromPtr(frame.ip) - @intFromPtr(&function.chunk.code.data[0]) - 1;
 
             self.io.err("[line {}] in ", .{function.chunk.lines.get(instruction) catch unreachable});

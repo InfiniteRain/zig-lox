@@ -138,6 +138,8 @@ pub const Compiler = struct {
         vm: *VM,
         io: *IoHandler,
     ) !Self {
+        const blank_token = Token{ .type = .eof, .lexeme = "", .line = 1 };
+
         var compiler = Self{
             .allocator = allocator,
 
@@ -146,8 +148,8 @@ pub const Compiler = struct {
 
             .scanner = undefined,
             .vm = vm,
-            .current = undefined,
-            .previous = undefined,
+            .current = blank_token,
+            .previous = blank_token,
             .had_error = false,
             .panic_mode = false,
             .io = io,
@@ -467,7 +469,7 @@ pub const Compiler = struct {
         try compiler.block();
 
         var final_function = try compiler.endCompiler();
-        try self.currentChunk().writeConstant(.{ .obj = &final_function.obj }, self.previous.line);
+        try self.currentChunk().writeClosure(.{ .obj = &final_function.obj }, self.previous.line);
 
         self.scanner = compiler.scanner;
         self.previous = compiler.previous;
