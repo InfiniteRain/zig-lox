@@ -1,5 +1,4 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
 const parseFloat = std.fmt.parseFloat;
 const EnumArray = std.EnumArray;
 const scanner_package = @import("scanner.zig");
@@ -22,6 +21,8 @@ const vm_package = @import("vm.zig");
 const VM = vm_package.VM;
 const dynamic_array_package = @import("dynamic_array.zig");
 const DynamicArray = dynamic_array_package.DynamicArray;
+const memory_package = @import("memory.zig");
+const Memory = memory_package.Memory;
 
 const MarkConstOption = union(enum) {
     no_change,
@@ -118,7 +119,7 @@ pub const Compiler = struct {
     const u24_count = std.math.maxInt(u24) + 1;
     const u16_max = std.math.maxInt(u16);
 
-    allocator: Allocator,
+    memory: *Memory,
 
     current_function: ?*Obj.Function,
     function_type: Obj.Function.Type,
@@ -140,39 +141,38 @@ pub const Compiler = struct {
     loop_depth: ?usize,
     loop_start: usize,
 
-    pub fn init(
-        allocator: Allocator,
+    fn init_fields(
+        self: *Self,
+        memory: *Memory,
         function_type: Obj.Function.Type,
         vm: *VM,
         io: *IoHandler,
-    ) !Self {
+    ) !void {
         const blank_token = Token{ .type = .eof, .lexeme = "", .line = 1 };
 
-        var compiler = Self{
-            .allocator = allocator,
+        self.memory = memory;
 
-            .current_function = try Obj.Function.allocNew(allocator, vm),
-            .function_type = function_type,
+        self.current_function = try Obj.Function.allocNew(memory, vm);
+        self.function_type = function_type;
 
-            .enclosing = null,
-            .scanner = undefined,
-            .vm = vm,
-            .current = blank_token,
-            .previous = blank_token,
-            .had_error = false,
-            .panic_mode = false,
-            .io = io,
+        self.enclosing = null;
+        self.scanner = undefined;
+        self.vm = vm;
+        self.current = blank_token;
+        self.previous = blank_token;
+        self.had_error = false;
+        self.panic_mode = false;
+        self.io = io;
 
-            .locals = try DynamicArray(Local).init(allocator),
-            .local_count = 1,
-            .upvalues = undefined,
-            .scope_depth = 0,
+        self.locals = try DynamicArray(Local).init(memory);
+        self.local_count = 1;
+        self.upvalues = undefined;
+        self.scope_depth = 0;
 
-            .loop_depth = null,
-            .loop_start = 0,
-        };
+        self.loop_depth = null;
+        self.loop_start = 0;
 
-        const local = &compiler.locals.data[0];
+        const local = &self.locals.data[0];
 
         local.depth = 0;
         local.name = .{
@@ -183,18 +183,28 @@ pub const Compiler = struct {
         local.initialized = false;
         local.is_const = true;
         local.is_captured = false;
-
-        return compiler;
     }
 
-    pub fn initWithEnclosing(
-        allocator: Allocator,
+    pub fn init(
+        self: *Self,
+        memory: *Memory,
+        function_type: Obj.Function.Type,
+        vm: *VM,
+        io: *IoHandler,
+    ) !void {
+        try self.init_fields(memory, function_type, vm, io);
+        vm.root_compiler = self;
+    }
+
+    fn initWithEnclosing(
+        memory: *Memory,
         compiler: *Compiler,
         function_type: Obj.Function.Type,
         vm: *VM,
         io: *IoHandler,
     ) !Self {
-        var new_compiler = try Self.init(allocator, function_type, vm, io);
+        var new_compiler: Self = undefined;
+        try new_compiler.init_fields(memory, function_type, vm, io);
         new_compiler.enclosing = compiler;
         new_compiler.scanner = compiler.scanner;
         new_compiler.current = compiler.current;
@@ -202,7 +212,7 @@ pub const Compiler = struct {
 
         if (function_type != .script) {
             new_compiler.current_function.?.name = try Obj.String.fromBufAlloc(
-                allocator,
+                memory,
                 compiler.previous.lexeme,
                 vm,
             );
@@ -450,7 +460,7 @@ pub const Compiler = struct {
 
     fn fun(self: *Self, function_type: Obj.Function.Type) !void {
         var compiler = try Compiler.initWithEnclosing(
-            self.allocator,
+            self.memory,
             self,
             function_type,
             self.vm,
@@ -785,7 +795,7 @@ pub const Compiler = struct {
         _ = can_assign;
 
         const string_obj = try Obj.String.fromBufAlloc(
-            self.allocator,
+            self.memory,
             self.previous.lexeme[1 .. self.previous.lexeme.len - 1],
             self.vm,
         );
@@ -882,7 +892,7 @@ pub const Compiler = struct {
     }
 
     fn identifierConstant(self: *Self, token: *const Token, const_option: MarkConstOption) CompilerError!struct { usize, bool } {
-        const string_obj = try Obj.String.fromBufAlloc(self.allocator, token.lexeme, self.vm);
+        const string_obj = try Obj.String.fromBufAlloc(self.memory, token.lexeme, self.vm);
 
         switch (const_option) {
             .change => |is_const| try self.currentChunk().setVarConstness(string_obj, is_const),

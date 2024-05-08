@@ -19,8 +19,7 @@ const exe_options = @import("exe_options");
 const trace_execution = exe_options.trace_execution;
 const activeTag = std.meta.activeTag;
 const memory_package = @import("memory.zig");
-const alloc = memory_package.alloc;
-const freeObjects = memory_package.freeObjects;
+const Memory = memory_package.Memory;
 const object_package = @import("object.zig");
 const Obj = object_package.Obj;
 const NativeFn = object_package.NativeFn;
@@ -61,22 +60,22 @@ const Stack = struct {
     const Self = @This();
     const max_stack = VM.max_frames * 256;
 
-    allocator: Allocator,
+    memory: *Memory,
     stack: []Value,
     top: [*]Value,
 
-    pub fn init(allocator: Allocator) !Self {
-        const stack = try allocator.alloc(Value, max_stack);
+    pub fn init(memory: *Memory) !Self {
+        const stack = try memory.alloc(Value, max_stack);
 
         return .{
-            .allocator = allocator,
+            .memory = memory,
             .stack = stack,
             .top = @ptrCast(&stack[0]),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.allocator.free(self.stack);
+        self.memory.free(self.stack);
     }
 
     pub fn push(self: *Self, value: Value) void {
@@ -102,7 +101,7 @@ pub const VM = struct {
     const Self = @This();
     const max_frames = 64;
 
-    allocator: Allocator,
+    memory: *Memory,
     frames: [max_frames]CallFrame,
     frame_count: usize,
     stack: Stack,
@@ -111,30 +110,28 @@ pub const VM = struct {
     open_upvalues: ?*Obj.Upvalue,
     globals: Table,
     objects: ?*Obj,
+    root_compiler: ?*Compiler,
 
-    pub fn init(allocator: Allocator, io: *IoHandler) !Self {
-        var vm = VM{
-            .allocator = allocator,
-            .frames = undefined,
-            .frame_count = 0,
-            .stack = try Stack.init(allocator),
-            .io = io,
-            .strings = try Table.init(allocator),
-            .open_upvalues = null,
-            .globals = try Table.init(allocator),
-            .objects = null,
-        };
+    pub fn init(self: *Self, memory: *Memory, io: *IoHandler) !void {
+        self.memory = memory;
+        self.frames = undefined;
+        self.frame_count = 0;
+        self.stack = try Stack.init(memory);
+        self.io = io;
+        self.strings = try Table.init(memory);
+        self.open_upvalues = null;
+        self.globals = try Table.init(memory);
+        self.objects = null;
+        self.memory.vm = self;
 
-        try vm.defineNative("clock", clockNative, 0);
-
-        return vm;
+        try self.defineNative("clock", clockNative, 0);
     }
 
     pub fn deinit(self: *Self) void {
         self.stack.deinit();
         self.strings.deinit();
         self.globals.deinit();
-        Obj.freeList(self.allocator, self.objects);
+        Obj.freeList(self.memory, self.objects);
     }
 
     pub fn interpret(self: *Self, source: []const u8, compiler: *Compiler) !void {
@@ -142,7 +139,7 @@ pub const VM = struct {
         const function = try compiler.compile(scanner);
 
         self.stack.push(.{ .obj = &function.obj });
-        const closure = try Obj.Closure.allocNew(self.allocator, function, self);
+        const closure = try Obj.Closure.allocNew(self.memory, function, self);
         _ = self.stack.pop();
         self.stack.push(.{ .obj = &closure.obj });
         try self.call(closure, 0);
@@ -176,7 +173,7 @@ pub const VM = struct {
                 .closure, .closure_long => {
                     const value = if (instruction == .closure) self.readConstant() else self.readConstantLong();
                     const function = value.obj.as(.function);
-                    const closure = try Obj.Closure.allocNew(self.allocator, function, self);
+                    const closure = try Obj.Closure.allocNew(self.memory, function, self);
                     self.stack.push(.{ .obj = &closure.obj });
 
                     var i: usize = 0;
@@ -404,7 +401,7 @@ pub const VM = struct {
             return upvalue_opt.?;
         }
 
-        const created_upvalue = try Obj.Upvalue.allocNew(self.allocator, local, self);
+        const created_upvalue = try Obj.Upvalue.allocNew(self.memory, local, self);
         created_upvalue.next = upvalue_opt;
 
         if (prev_upvalue_opt == null) {
@@ -430,11 +427,11 @@ pub const VM = struct {
         const a = self.stack.pop().obj.as(.string);
 
         const new_length = a.chars.len + b.chars.len;
-        const new_chars = try alloc(u8, self.allocator, new_length);
+        const new_chars = try self.memory.alloc(u8, new_length);
         @memcpy(new_chars[0..a.chars.len], a.chars);
         @memcpy(new_chars[a.chars.len..(a.chars.len + b.chars.len)], b.chars);
 
-        const result = try Obj.String.fromHeapBufAlloc(self.allocator, new_chars, self);
+        const result = try Obj.String.fromHeapBufAlloc(self.memory, new_chars, self);
         self.stack.push(.{ .obj = &result.obj });
     }
 
@@ -551,8 +548,8 @@ pub const VM = struct {
         function: NativeFn,
         arity: u8,
     ) !void {
-        self.stack.push(.{ .obj = &(try Obj.String.fromBufAlloc(self.allocator, name, self)).obj });
-        self.stack.push(.{ .obj = &(try Obj.Native.allocNew(self.allocator, function, arity, self)).obj });
+        self.stack.push(.{ .obj = &(try Obj.String.fromBufAlloc(self.memory, name, self)).obj });
+        self.stack.push(.{ .obj = &(try Obj.Native.allocNew(self.memory, function, arity, self)).obj });
         _ = try self.globals.set(self.stack.stack[0].obj.as(.string), self.stack.stack[1]);
         _ = self.stack.pop();
         _ = self.stack.pop();
@@ -562,13 +559,18 @@ pub const VM = struct {
 test "all intermediary strings should be dealloced at the end of the program" {
     const allocator = std.testing.allocator;
 
+    var memory = Memory.init(allocator);
+
     var io = try IoHandler.init(allocator);
     defer io.deinit();
 
-    var vm = try VM.init(allocator, &io);
+    var vm: VM = undefined;
+    try vm.init(&memory, &io);
+    // var vm = try VM.init(&memory, &io);
     defer vm.deinit();
 
-    var compiler = try Compiler.init(allocator, .script, &vm, &io);
+    var compiler: Compiler = undefined;
+    try compiler.init(&memory, .script, &vm, &io);
     defer compiler.deinit();
 
     vm.interpret("\"st\" + \"ri\" + \"ng\";", &compiler) catch unreachable;

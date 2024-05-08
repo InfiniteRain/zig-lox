@@ -4,10 +4,7 @@ const expect = testing.expect;
 const expectError = testing.expectError;
 const Allocator = std.mem.Allocator;
 const memory_package = @import("memory.zig");
-const alloc = memory_package.alloc;
-const free = memory_package.free;
-const realloc = memory_package.realloc;
-const growCapacity = memory_package.growCapacity;
+const Memory = memory_package.Memory;
 
 const RleError = error{IndexOutOfBounds};
 
@@ -16,22 +13,22 @@ pub fn RleArray(comptime T: type) type {
         const Self = @This();
         const Entry = struct { T, usize };
 
-        allocator: Allocator,
+        memory: *Memory,
         entries_count: usize,
         entries: []Entry,
         count: usize,
 
-        pub fn init(allocator: Allocator) !Self {
+        pub fn init(memory: *Memory) !Self {
             return .{
-                .allocator = allocator,
+                .memory = memory,
                 .entries_count = 0,
-                .entries = try alloc(Entry, allocator, 8),
+                .entries = try memory.alloc(Entry, 8),
                 .count = 0,
             };
         }
 
         pub fn deinit(self: Self) void {
-            free(self.allocator, self.entries);
+            self.memory.free(self.entries);
         }
 
         pub fn push(self: *Self, value: T) !void {
@@ -70,8 +67,8 @@ pub fn RleArray(comptime T: type) type {
             const capacity = self.entries.len;
 
             if (capacity < self.entries_count + 1) {
-                const new_capacity = growCapacity(capacity);
-                self.entries = try realloc(self.allocator, self.entries, new_capacity);
+                const new_capacity = Memory.growCapacity(capacity);
+                self.entries = try self.memory.realloc(self.entries, new_capacity);
             }
 
             self.entries[self.entries_count] = entry;
@@ -82,8 +79,9 @@ pub fn RleArray(comptime T: type) type {
 
 test "array size gets properly reallocated" {
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var array = try RleArray(u8).init(allocator);
+    var array = try RleArray(u8).init(&memory);
     defer array.deinit();
 
     try expect(array.entries.len == 8);
@@ -115,8 +113,9 @@ test "array size gets properly reallocated" {
 
 test "run-length encoding should work as expected" {
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var array = try RleArray(u8).init(allocator);
+    var array = try RleArray(u8).init(&memory);
     defer array.deinit();
 
     try expect(array.entries_count == 0);
@@ -158,8 +157,9 @@ test "run-length encoding should work as expected" {
 
 test "sequencing works properly" {
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var array = try RleArray(u8).init(allocator);
+    var array = try RleArray(u8).init(&memory);
     defer array.deinit();
 
     try expectError(error.IndexOutOfBounds, array.get(0));

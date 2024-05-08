@@ -3,10 +3,7 @@ const Allocator = std.mem.Allocator;
 const value_package = @import("value.zig");
 const Value = value_package.Value;
 const memory_package = @import("memory.zig");
-const alloc = memory_package.alloc;
-const _free = memory_package.free;
-const create = memory_package.create;
-const destroy = memory_package.destroy;
+const Memory = memory_package.Memory;
 const vm_package = @import("vm.zig");
 const VM = vm_package.VM;
 const chunk_package = @import("chunk.zig");
@@ -42,8 +39,8 @@ pub const Obj = struct {
         chars: []u8,
         hash: u32,
 
-        fn allocNew(allocator: Allocator, heap_buf: []u8, string_hash: u32, vm: *VM) !*String {
-            const string_obj = (try Self.fromTypeAlloc(.string, allocator, vm)).as(.string);
+        fn allocNew(memory: *Memory, heap_buf: []u8, string_hash: u32, vm: *VM) !*String {
+            const string_obj = (try Self.fromTypeAlloc(.string, memory, vm)).as(.string);
             string_obj.chars = heap_buf;
             string_obj.hash = string_hash;
 
@@ -52,19 +49,19 @@ pub const Obj = struct {
             return string_obj;
         }
 
-        pub fn fromHeapBufAlloc(allocator: Allocator, heap_buf: []u8, vm: *VM) !*String {
+        pub fn fromHeapBufAlloc(memory: *Memory, heap_buf: []u8, vm: *VM) !*String {
             const string_hash = String.hash(heap_buf);
             const interned = vm.strings.findString(heap_buf, string_hash);
 
             if (interned) |unwrapped| {
-                _free(allocator, heap_buf);
+                memory.free(heap_buf);
                 return unwrapped;
             }
 
-            return String.allocNew(allocator, heap_buf, string_hash, vm);
+            return String.allocNew(memory, heap_buf, string_hash, vm);
         }
 
-        pub fn fromBufAlloc(allocator: Allocator, buf: []const u8, vm: *VM) !*String {
+        pub fn fromBufAlloc(memory: *Memory, buf: []const u8, vm: *VM) !*String {
             const string_hash = String.hash(buf);
             const interned = vm.strings.findString(buf, string_hash);
 
@@ -72,10 +69,10 @@ pub const Obj = struct {
                 return unwrapped;
             }
 
-            const heap_buf = try alloc(u8, allocator, buf.len);
+            const heap_buf = try memory.alloc(u8, buf.len);
             @memcpy(heap_buf, buf);
 
-            return String.allocNew(allocator, heap_buf, string_hash, vm);
+            return String.allocNew(memory, heap_buf, string_hash, vm);
         }
 
         pub fn hash(heap_buf: []const u8) u32 {
@@ -102,12 +99,12 @@ pub const Obj = struct {
             script,
         };
 
-        pub fn allocNew(allocator: Allocator, vm: *VM) !*Function {
-            const function_obj = (try Self.fromTypeAlloc(.function, allocator, vm)).as(.function);
+        pub fn allocNew(memory: *Memory, vm: *VM) !*Function {
+            const function_obj = (try Self.fromTypeAlloc(.function, memory, vm)).as(.function);
             function_obj.arity = 0;
             function_obj.upvalue_count = 0;
             function_obj.name = null;
-            function_obj.chunk = try Chunk.init(allocator);
+            function_obj.chunk = try Chunk.init(memory);
 
             return function_obj;
         }
@@ -118,8 +115,8 @@ pub const Obj = struct {
         function: NativeFn,
         arity: u8,
 
-        pub fn allocNew(allocator: Allocator, nativeFn: NativeFn, arity: u8, vm: *VM) !*Native {
-            const native_obj = (try Self.fromTypeAlloc(.native, allocator, vm)).as(.native);
+        pub fn allocNew(memory: *Memory, nativeFn: NativeFn, arity: u8, vm: *VM) !*Native {
+            const native_obj = (try Self.fromTypeAlloc(.native, memory, vm)).as(.native);
             native_obj.function = nativeFn;
             native_obj.arity = arity;
             return native_obj;
@@ -132,15 +129,15 @@ pub const Obj = struct {
         upvalues: []*Upvalue,
         upvalue_count: usize,
 
-        pub fn allocNew(allocator: Allocator, function: *Function, vm: *VM) !*Closure {
-            const upvalues = try alloc(*Upvalue, allocator, function.upvalue_count);
+        pub fn allocNew(memory: *Memory, function: *Function, vm: *VM) !*Closure {
+            const upvalues = try memory.alloc(*Upvalue, function.upvalue_count);
             var i: usize = 0;
 
             while (i < function.upvalue_count) : (i += 1) {
                 upvalues[i] = undefined;
             }
 
-            const closure = (try Self.fromTypeAlloc(.closure, allocator, vm)).as(.closure);
+            const closure = (try Self.fromTypeAlloc(.closure, memory, vm)).as(.closure);
             closure.function = function;
             closure.upvalues = upvalues;
             closure.upvalue_count = function.upvalue_count;
@@ -155,8 +152,8 @@ pub const Obj = struct {
         closed: Value,
         next: ?*Upvalue,
 
-        pub fn allocNew(allocator: Allocator, slot: *Value, vm: *VM) !*Upvalue {
-            const upvalue = (try Self.fromTypeAlloc(.upvalue, allocator, vm)).as(.upvalue);
+        pub fn allocNew(memory: *Memory, slot: *Value, vm: *VM) !*Upvalue {
+            const upvalue = (try Self.fromTypeAlloc(.upvalue, memory, vm)).as(.upvalue);
             upvalue.location = slot;
             upvalue.closed = .nil;
             upvalue.next = null;
@@ -167,45 +164,45 @@ pub const Obj = struct {
     type: Type,
     next: ?*Self,
 
-    pub fn free(self: *Self, allocator: Allocator) void {
+    pub fn free(self: *Self, memory: *Memory) void {
         switch (self.type) {
             .string => {
                 const string = self.as(.string);
-                _free(allocator, string.chars);
-                destroy(allocator, self.as(.string));
+                memory.free(string.chars);
+                memory.destroy(self.as(.string));
             },
             .function => {
                 const function = self.as(.function);
                 function.chunk.deinit();
-                destroy(allocator, self.as(.function));
+                memory.destroy(self.as(.function));
             },
             .native => {
-                destroy(allocator, self.as(.native));
+                memory.destroy(self.as(.native));
             },
             .closure => {
                 const closure = self.as(.closure);
-                _free(allocator, closure.upvalues);
-                destroy(allocator, self.as(.closure));
+                memory.free(closure.upvalues);
+                memory.destroy(self.as(.closure));
             },
             .upvalue => {
-                destroy(allocator, self.as(.upvalue));
+                memory.destroy(self.as(.upvalue));
             },
         }
     }
 
-    pub fn freeList(allocator: Allocator, objects: ?*Self) void {
+    pub fn freeList(memory: *Memory, objects: ?*Self) void {
         var current = objects;
 
         while (current) |object| {
             const next = object.next;
-            object.free(allocator);
+            object.free(memory);
             current = next;
         }
     }
 
-    fn fromTypeAlloc(comptime _type: Type, allocator: Allocator, vm: *VM) !*Self {
+    fn fromTypeAlloc(comptime _type: Type, memory: *Memory, vm: *VM) !*Self {
         const TypedStruct = Type.TypeStruct(_type);
-        const typed_obj = try create(TypedStruct, allocator);
+        const typed_obj = try memory.create(TypedStruct);
 
         typed_obj.obj = .{
             .type = _type,

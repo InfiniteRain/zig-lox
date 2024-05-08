@@ -4,37 +4,34 @@ const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const expect = testing.expect;
 const memory_package = @import("memory.zig");
-const alloc = memory_package.alloc;
-const free = memory_package.free;
-const realloc = memory_package.realloc;
-const growCapacity = memory_package.growCapacity;
+const Memory = memory_package.Memory;
 
 pub fn DynamicArray(comptime T: type) type {
     return struct {
         const Self = @This();
 
+        memory: *Memory,
         count: usize,
         data: []T,
-        allocator: Allocator,
 
-        pub fn init(allocator: Allocator) !Self {
+        pub fn init(memory: *Memory) !Self {
             return .{
+                .memory = memory,
                 .count = 0,
-                .data = try alloc(T, allocator, 8),
-                .allocator = allocator,
+                .data = try memory.alloc(T, 8),
             };
         }
 
         pub fn deinit(self: Self) void {
-            free(self.allocator, self.data);
+            self.memory.free(self.data);
         }
 
         pub fn push(self: *Self, value: T) !void {
             const capacity = self.data.len;
 
             if (capacity < self.count + 1) {
-                const new_capacity = growCapacity(capacity);
-                self.data = try realloc(self.allocator, self.data, new_capacity);
+                const new_capacity = Memory.growCapacity(capacity);
+                self.data = try self.memory.realloc(self.data, new_capacity);
             }
 
             self.data[self.count] = value;
@@ -45,8 +42,8 @@ pub fn DynamicArray(comptime T: type) type {
             assert(index >= 0 and index <= self.data.len);
 
             if (index == self.data.len) {
-                const new_capacity = growCapacity(self.data.len);
-                self.data = try realloc(self.allocator, self.data, new_capacity);
+                const new_capacity = Memory.growCapacity(self.data.len);
+                self.data = try self.memory.realloc(self.data, new_capacity);
             }
 
             self.data[index] = value;
@@ -56,8 +53,9 @@ pub fn DynamicArray(comptime T: type) type {
 
 test "array size gets properly reallocated" {
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var array = try DynamicArray(u8).init(allocator);
+    var array = try DynamicArray(u8).init(&memory);
     defer array.deinit();
 
     try expect(array.data.len == 8);
@@ -89,8 +87,9 @@ test "array size gets properly reallocated" {
 
 test "array size gets reallocated when set is used" {
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var array = try DynamicArray(u8).init(allocator);
+    var array = try DynamicArray(u8).init(&memory);
     defer array.deinit();
 
     for (0..8) |i| {

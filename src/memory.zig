@@ -1,37 +1,53 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const vm_package = @import("vm.zig");
+const VM = vm_package.VM;
 
-fn reallocate(comptime T: type, allocator: Allocator, pointer_opt: ?[]T, new_size: usize) ![]T {
-    return if (pointer_opt) |pointer|
-        try allocator.realloc(pointer, new_size)
-    else
-        return try allocator.alloc(T, new_size);
-}
+pub const Memory = struct {
+    const Self = @This();
 
-pub fn alloc(comptime T: type, allocator: Allocator, size: usize) ![]T {
-    return try reallocate(T, allocator, null, size);
-}
+    allocator: Allocator,
+    vm: ?*VM,
 
-pub fn create(comptime T: type, allocator: Allocator) !*T {
-    return &(try alloc(T, allocator, 1))[0];
-}
+    pub fn init(allocator: Allocator) Self {
+        return .{
+            .allocator = allocator,
+            .vm = null,
+        };
+    }
 
-pub fn free(allocator: Allocator, pointer: anytype) void {
-    const ChildType = @typeInfo(@TypeOf(pointer)).Pointer.child;
-    _ = reallocate(ChildType, allocator, pointer, 0) catch unreachable;
-}
+    fn reallocate(self: *Self, comptime T: type, pointer_opt: ?[]T, new_size: usize) ![]T {
+        return if (pointer_opt) |pointer|
+            try self.allocator.realloc(pointer, new_size)
+        else
+            return try self.allocator.alloc(T, new_size);
+    }
 
-pub fn destroy(allocator: Allocator, pointer: anytype) void {
-    const ChildType = @typeInfo(@TypeOf(pointer)).Pointer.child;
-    const slice: []ChildType = @as(*[1]ChildType, pointer);
-    free(allocator, slice);
-}
+    pub fn alloc(self: *Self, comptime T: type, size: usize) ![]T {
+        return try self.reallocate(T, null, size);
+    }
 
-pub fn realloc(allocator: Allocator, pointer: anytype, new_size: usize) ![]@typeInfo(@TypeOf(pointer)).Pointer.child {
-    const PointerType = @typeInfo(@TypeOf(pointer)).Pointer.child;
-    return try reallocate(PointerType, allocator, pointer, new_size);
-}
+    pub fn create(self: *Self, comptime T: type) !*T {
+        return &(try self.alloc(T, 1))[0];
+    }
 
-pub fn growCapacity(capacity: usize) usize {
-    return if (capacity <= 0) 8 else capacity * 2;
-}
+    pub fn free(self: *Self, pointer: anytype) void {
+        const ChildType = @typeInfo(@TypeOf(pointer)).Pointer.child;
+        _ = self.reallocate(ChildType, pointer, 0) catch unreachable;
+    }
+
+    pub fn destroy(self: *Self, pointer: anytype) void {
+        const ChildType = @typeInfo(@TypeOf(pointer)).Pointer.child;
+        const slice: []ChildType = @as(*[1]ChildType, pointer);
+        self.free(slice);
+    }
+
+    pub fn realloc(self: *Self, pointer: anytype, new_size: usize) ![]@typeInfo(@TypeOf(pointer)).Pointer.child {
+        const PointerType = @typeInfo(@TypeOf(pointer)).Pointer.child;
+        return try self.reallocate(PointerType, pointer, new_size);
+    }
+
+    pub fn growCapacity(capacity: usize) usize {
+        return if (capacity <= 0) 8 else capacity * 2;
+    }
+};

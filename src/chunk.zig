@@ -5,10 +5,7 @@ const expect = testing.expect;
 const expectError = testing.expectError;
 const Allocator = std.mem.Allocator;
 const memory_package = @import("memory.zig");
-const growCapacity = memory_package.growCapacity;
-const alloc = memory_package.alloc;
-const realloc = memory_package.realloc;
-const free = memory_package.free;
+const Memory = memory_package.Memory;
 const dynamic_array_package = @import("dynamic_array.zig");
 const DynamicArray = dynamic_array_package.DynamicArray;
 const value_package = @import("value.zig");
@@ -71,17 +68,17 @@ pub const Chunk = struct {
     const_vars: Table,
     lines: RleArray(u64),
 
-    pub fn init(allocator: Allocator) !Self {
-        const code = try DynamicArray(u8).init(allocator);
+    pub fn init(memory: *Memory) !Self {
+        const code = try DynamicArray(u8).init(memory);
         errdefer code.deinit();
 
-        const constants = try DynamicArray(Value).init(allocator);
+        const constants = try DynamicArray(Value).init(memory);
         errdefer constants.deinit();
 
-        const lines = try RleArray(u64).init(allocator);
+        const lines = try RleArray(u64).init(memory);
         errdefer lines.deinit();
 
-        const const_vars = try Table.init(allocator);
+        const const_vars = try Table.init(memory);
 
         return .{
             .code = code,
@@ -182,8 +179,9 @@ test "first allocation in init fails" {
         .{ .fail_index = 0 },
     );
     const allocator = failing_allocator.allocator();
+    var memory = Memory.init(allocator);
 
-    const result = Chunk.init(allocator);
+    const result = Chunk.init(&memory);
 
     try expectError(error.OutOfMemory, result);
 }
@@ -194,8 +192,9 @@ test "second allocation in init fails" {
         .{ .fail_index = 1 },
     );
     const allocator = failing_allocator.allocator();
+    var memory = Memory.init(allocator);
 
-    const result = Chunk.init(allocator);
+    const result = Chunk.init(&memory);
 
     try expectError(error.OutOfMemory, result);
 }
@@ -206,16 +205,18 @@ test "third allocation in init fails" {
         .{ .fail_index = 2 },
     );
     const allocator = failing_allocator.allocator();
+    var memory = Memory.init(allocator);
 
-    const result = Chunk.init(allocator);
+    const result = Chunk.init(&memory);
 
     try expectError(error.OutOfMemory, result);
 }
 
 test "writeOpcode adds opcode and line as expected" {
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var chunk = try Chunk.init(allocator);
+    var chunk = try Chunk.init(&memory);
     defer chunk.deinit();
 
     try expect(chunk.code.count == 0);
@@ -238,8 +239,9 @@ test "writeOpcode adds opcode and line as expected" {
 
 test "readByte works as expected" {
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var chunk = try Chunk.init(allocator);
+    var chunk = try Chunk.init(&memory);
     defer chunk.deinit();
 
     try chunk.writeOpCode(OpCode.ret, 0);
@@ -251,8 +253,9 @@ test "readByte works as expected" {
 
 test "readLine works as expected" {
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var chunk = try Chunk.init(allocator);
+    var chunk = try Chunk.init(&memory);
     defer chunk.deinit();
 
     try chunk.writeOpCode(OpCode.ret, 10);
@@ -264,8 +267,9 @@ test "readLine works as expected" {
 
 test "writeConstant and read_constant work as expected" {
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var chunk = try Chunk.init(allocator);
+    var chunk = try Chunk.init(&memory);
     defer chunk.deinit();
 
     for (0..300) |i| {

@@ -3,15 +3,12 @@ const bufPrint = std.fmt.bufPrint;
 const mem = std.mem;
 const testing = std.testing;
 const expect = std.testing.expect;
-const Allocator = std.mem.Allocator;
 const object_package = @import("object.zig");
 const Obj = object_package.Obj;
 const value_package = @import("value.zig");
 const Value = value_package.Value;
-const memory = @import("memory.zig");
-const alloc = memory.alloc;
-const free = memory.free;
-const growCapacity = memory.growCapacity;
+const memory_package = @import("memory.zig");
+const Memory = memory_package.Memory;
 const io_handler_package = @import("io_handler.zig");
 const IoHandler = io_handler_package.IoHandler;
 const vm_package = @import("vm.zig");
@@ -28,25 +25,25 @@ pub const Table = struct {
     const Self = @This();
     const max_load = 0.75;
 
-    allocator: Allocator,
+    memory: *Memory,
     count: usize,
     entries: []Entry,
 
-    pub fn init(allocator: Allocator) !Self {
+    pub fn init(memory: *Memory) !Self {
         return .{
-            .allocator = allocator,
+            .memory = memory,
             .count = 0,
-            .entries = try alloc(Entry, allocator, 0),
+            .entries = try memory.alloc(Entry, 0),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        free(self.allocator, self.entries);
+        self.memory.free(self.entries);
     }
 
     pub fn set(self: *Self, key: *Obj.String, value: Value) !bool {
         if (self.count + 1 > @as(usize, @intFromFloat(@as(f64, @floatFromInt(self.entries.len)) * max_load))) {
-            const new_capacity = growCapacity(self.entries.len);
+            const new_capacity = Memory.growCapacity(self.entries.len);
             try self.adjustCapacity(new_capacity);
         }
 
@@ -125,7 +122,7 @@ pub const Table = struct {
     }
 
     fn adjustCapacity(self: *Self, capacity: usize) !void {
-        const new_entries = try alloc(Entry, self.allocator, capacity);
+        const new_entries = try self.memory.alloc(Entry, capacity);
 
         for (new_entries) |*new_entry| {
             new_entry.key = null;
@@ -145,7 +142,7 @@ pub const Table = struct {
             }
         }
 
-        free(self.allocator, self.entries);
+        self.memory.free(self.entries);
         self.entries = new_entries;
     }
 
@@ -178,8 +175,9 @@ pub const Table = struct {
 test "hashing function overflows properly" {
     // GIVEN
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var s = try TableSuite.init(allocator);
+    var s = try TableSuite.init(&memory);
     defer s.deinit();
 
     // WHEN
@@ -192,9 +190,10 @@ test "hashing function overflows properly" {
 test "table starts at 0 capacity" {
     // GIVEN
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
     // WHEN
-    var s = try TableSuite.init(allocator);
+    var s = try TableSuite.init(&memory);
     defer s.deinit();
 
     // THEN
@@ -204,8 +203,9 @@ test "table starts at 0 capacity" {
 test "adding entries resizes the capacity" {
     // GIVEN
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var s = try TableSuite.init(allocator);
+    var s = try TableSuite.init(&memory);
     defer s.deinit();
 
     // WHEN
@@ -224,8 +224,9 @@ test "adding entries resizes the capacity" {
 test "adding entries beyond 75% of capacity two times resizes the capacity" {
     // GIVEN
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var s = try TableSuite.init(allocator);
+    var s = try TableSuite.init(&memory);
     defer s.deinit();
 
     // WHEN
@@ -244,8 +245,9 @@ test "adding entries beyond 75% of capacity two times resizes the capacity" {
 test "adding entries beyond 75% of capacity three times resizes the capacity" {
     // GIVEN
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var s = try TableSuite.init(allocator);
+    var s = try TableSuite.init(&memory);
     defer s.deinit();
 
     // WHEN
@@ -264,8 +266,9 @@ test "adding entries beyond 75% of capacity three times resizes the capacity" {
 test "set should return true when new key inserted" {
     // GIVEN
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var s = try TableSuite.init(allocator);
+    var s = try TableSuite.init(&memory);
     defer s.deinit();
 
     const str = try s.createString("key");
@@ -280,8 +283,9 @@ test "set should return true when new key inserted" {
 test "set should return false when key value overriden" {
     // GIVEN
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var s = try TableSuite.init(allocator);
+    var s = try TableSuite.init(&memory);
     defer s.deinit();
 
     const str = try s.createString("key");
@@ -297,11 +301,12 @@ test "set should return false when key value overriden" {
 test "set should properly handle collisions" {
     // GIVEN
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var s = try TableSuite.init(allocator);
+    var s = try TableSuite.init(&memory);
     defer s.deinit();
 
-    var s2 = try TableSuite.init(allocator);
+    var s2 = try TableSuite.init(&memory);
     defer s2.deinit();
 
     // hashes of both AAAA and AAAI % 8 are 1
@@ -335,8 +340,9 @@ test "set should properly handle collisions" {
 test "get should return true on existent items" {
     // GIVEN
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var s = try TableSuite.init(allocator);
+    var s = try TableSuite.init(&memory);
     defer s.deinit();
 
     const str = try s.createString("key");
@@ -353,8 +359,9 @@ test "get should return true on existent items" {
 test "get should return false on non-existent item" {
     // GIVEN
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var s = try TableSuite.init(allocator);
+    var s = try TableSuite.init(&memory);
     defer s.deinit();
 
     const str = try s.createString("non-existent key");
@@ -370,11 +377,12 @@ test "get should return false on non-existent item" {
 test "get should properly handle collisions" {
     // GIVEN
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var s = try TableSuite.init(allocator);
+    var s = try TableSuite.init(&memory);
     defer s.deinit();
 
-    var s2 = try TableSuite.init(allocator);
+    var s2 = try TableSuite.init(&memory);
     defer s2.deinit();
 
     // hashes of both AAAA and AAAI % 8 are 1
@@ -414,8 +422,9 @@ test "get should properly handle collisions" {
 test "get should resolve with correct values" {
     // GIVEN
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var s = try TableSuite.init(allocator);
+    var s = try TableSuite.init(&memory);
     defer s.deinit();
 
     const str1 = try s.createString("key1");
@@ -450,8 +459,9 @@ test "get should resolve with correct values" {
 test "delete returns true on successful deletion" {
     // GIVEN
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var s = try TableSuite.init(allocator);
+    var s = try TableSuite.init(&memory);
     defer s.deinit();
 
     const str = try s.createString("key1");
@@ -468,8 +478,9 @@ test "delete returns true on successful deletion" {
 test "delete returns false on unsuccessful deletion" {
     // GIVEN
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var s = try TableSuite.init(allocator);
+    var s = try TableSuite.init(&memory);
     defer s.deinit();
 
     const str = try s.createString("key1");
@@ -484,8 +495,9 @@ test "delete returns false on unsuccessful deletion" {
 test "delete should properly delete values" {
     // GIVEN
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var s = try TableSuite.init(allocator);
+    var s = try TableSuite.init(&memory);
     defer s.deinit();
 
     const str1 = try s.createString("key1");
@@ -513,8 +525,9 @@ test "delete should properly delete values" {
 test "delete should place a tombstone" {
     // GIVEN
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var s = try TableSuite.init(allocator);
+    var s = try TableSuite.init(&memory);
     defer s.deinit();
 
     // key AAAA will put the entry into index 1
@@ -533,8 +546,9 @@ test "delete should place a tombstone" {
 test "tombstone should prevent collided items from becoming inaccessible" {
     // GIVEN
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var s = try TableSuite.init(allocator);
+    var s = try TableSuite.init(&memory);
     defer s.deinit();
 
     // hashes of both AAAA and AAAI % 8 are 1
@@ -558,8 +572,9 @@ test "tombstone should prevent collided items from becoming inaccessible" {
 test "tombstones should not be copied over to the resized buffer" {
     // GIVEN
     const allocator = testing.allocator;
+    var memory = Memory.init(allocator);
 
-    var s = try TableSuite.init(allocator);
+    var s = try TableSuite.init(&memory);
     defer s.deinit();
 
     const str1 = try s.createString("key1");

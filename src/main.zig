@@ -12,7 +12,7 @@ const disassembleChunk = debug_package.disassembleChunk;
 const vm_package = @import("vm.zig");
 const VM = vm_package.VM;
 const memory_package = @import("memory.zig");
-const free = memory_package.free;
+const Memory = memory_package.Memory;
 const compiler_package = @import("compiler.zig");
 const Compiler = compiler_package.Compiler;
 const io_handler_package = @import("io_handler.zig");
@@ -25,13 +25,17 @@ pub fn main() !void {
     const args = try argsAlloc(allocator);
     defer argsFree(allocator, args);
 
+    var memory = Memory.init(allocator);
+
     var io = try IoHandler.init(allocator);
     defer io.deinit();
 
-    var vm = try VM.init(allocator, &io);
+    var vm: VM = undefined;
+    try vm.init(&memory, &io);
     defer vm.deinit();
 
-    var compiler = try Compiler.init(allocator, .script, &vm, &io);
+    var compiler: Compiler = undefined;
+    try compiler.init(&memory, .script, &vm, &io);
     defer compiler.deinit();
 
     switch (args.len) {
@@ -46,7 +50,7 @@ pub fn main() !void {
 
 fn runFile(allocator: Allocator, file_path: []u8, compiler: *Compiler, vm: *VM, io: *IoHandler) !void {
     const source = try readFileAlloc(allocator, file_path, io);
-    defer free(allocator, source);
+    defer allocator.free(source);
 
     vm.interpret(source, compiler) catch |err| switch (err) {
         error.CompileError => std.posix.exit(65),

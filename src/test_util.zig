@@ -9,22 +9,25 @@ const vm_package = @import("vm.zig");
 const VM = vm_package.VM;
 const object_package = @import("object.zig");
 const Obj = object_package.Obj;
+const memory_package = @import("memory.zig");
+const Memory = memory_package.Memory;
 
 pub const TableSuite = struct {
     const Self = @This();
 
-    allocator: Allocator,
+    memory: *Memory,
     io: IoHandler,
     vm: VM,
     table: Table,
 
-    pub fn init(allocator: Allocator) !Self {
-        var io = try IoHandler.init(allocator);
-        const vm = try VM.init(allocator, &io);
-        const table = try Table.init(allocator);
+    pub fn init(memory: *Memory) !Self {
+        var io = try IoHandler.init(memory.allocator);
+        var vm: VM = undefined;
+        try vm.init(memory, &io);
+        const table = try Table.init(memory);
 
         return .{
-            .allocator = allocator,
+            .memory = memory,
             .io = io,
             .vm = vm,
             .table = table,
@@ -38,6 +41,6 @@ pub const TableSuite = struct {
     }
 
     pub fn createString(self: *Self, buf: []const u8) !*Obj.String {
-        return try Obj.String.fromBufAlloc(self.allocator, buf, &self.vm);
+        return try Obj.String.fromBufAlloc(self.memory, buf, &self.vm);
     }
 };

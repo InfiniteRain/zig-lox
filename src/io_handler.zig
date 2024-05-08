@@ -3,9 +3,6 @@ const Allocator = std.mem.Allocator;
 const io = std.io;
 const Writer = std.fs.File.Writer;
 const Reader = std.fs.File.Reader;
-const memory_package = @import("memory.zig");
-const alloc = memory_package.alloc;
-const free = memory_package.free;
 
 pub const IoHandler = struct {
     const Self = @This();
@@ -19,7 +16,7 @@ pub const IoHandler = struct {
     stderr: Writer,
 
     pub fn init(allocator: Allocator) !IoHandler {
-        const write_buffer = try alloc(u8, allocator, buffer_length);
+        const write_buffer = try allocator.alloc(u8, buffer_length);
         const write_buffer_stream = io.fixedBufferStream(write_buffer);
 
         const stdin = io.getStdIn().reader();
@@ -37,7 +34,7 @@ pub const IoHandler = struct {
     }
 
     pub fn deinit(self: *const Self) void {
-        free(self.allocator, self.write_buffer);
+        self.allocator.free(self.write_buffer);
     }
 
     pub fn print(self: *const Self, comptime format: []const u8, args: anytype) void {
