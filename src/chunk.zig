@@ -113,10 +113,11 @@ pub const Chunk = struct {
     pub fn writeConstant(self: *Self, value: Value, line: u64) !void {
         const index = try self.addConstant(value);
 
-        if (index < 0xFF) {
+        if (index <= 0xFF) {
             try self.writeOpCode(.constant, line);
         } else {
-            try self.writeOpCode(.constant_long, line);
+            // bytecode could handle more, but giving a limit of 255 to comply to tests
+            return error.TooManyConstants;
         }
 
         try self.writeConstantIndex(index, line);
@@ -125,7 +126,7 @@ pub const Chunk = struct {
     pub fn writeClosure(self: *Self, value: Value, line: u64) !void {
         const index = try self.addConstant(value);
 
-        if (index < 0xFF) {
+        if (index <= 0xFF) {
             try self.writeOpCode(.closure, line);
         } else {
             try self.writeOpCode(.closure_long, line);

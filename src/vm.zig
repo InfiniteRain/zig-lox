@@ -543,7 +543,6 @@ pub const VM = struct {
     }
 
     fn runtimeError(self: *Self, comptime format: []const u8, args: anytype) void {
-        self.io.err("Error: ", .{});
         self.io.err(format, args);
         self.io.err("\n", .{});
 

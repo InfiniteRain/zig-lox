@@ -123,7 +123,7 @@ pub const Scanner = struct {
             '<' => self.makeToken(if (self.match('=')) .less_equal else .less),
             '>' => self.makeToken(if (self.match('=')) .greater_equal else .greater),
             '"' => self.string(),
-            else => self.makeErrorToken("Unexpected character"),
+            else => self.makeErrorToken("Unexpected character."),
         };
     }
 

@@ -86,7 +86,7 @@ pub const Compiler = struct {
         array.set(.slash, .{ .infix = Self.binary, .precedence = .factor });
         array.set(.star, .{ .infix = Self.binary, .precedence = .factor });
         array.set(.bang, .{ .prefix = Self.unary });
-        array.set(.bang_equal, .{ .prefix = Self.binary, .precedence = .equality });
+        array.set(.bang_equal, .{ .infix = Self.binary, .precedence = .equality });
         array.set(.equal, .{});
         array.set(.equal_equal, .{ .infix = Self.binary, .precedence = .equality });
         array.set(.greater, .{ .infix = Self.binary, .precedence = .comparison });
@@ -116,7 +116,7 @@ pub const Compiler = struct {
         array.set(.eof, .{});
         break :blk array;
     };
-    const u24_count = std.math.maxInt(u24) + 1;
+    const u8_count = std.math.maxInt(u8) + 1;
     const u16_max = std.math.maxInt(u16);
 
     memory: *Memory,
@@ -309,7 +309,7 @@ pub const Compiler = struct {
 
         const offset = self.currentChunk().code.count - loop_start + 2;
         if (offset > u16_max) {
-            self.err("Loop body to large.");
+            self.err("Loop body too large.");
         }
 
         try self.emitByte(@as(u8, @intCast((offset >> 8) & 0xFF)));
@@ -328,7 +328,16 @@ pub const Compiler = struct {
     }
 
     fn emitConstant(self: *Self, value: Value) CompilerError!void {
-        try self.currentChunk().writeConstant(value, self.previous.line);
+        self.currentChunk().writeConstant(value, self.previous.line) catch |e| {
+            switch (e) {
+                error.TooManyConstants => {
+                    self.err("Too many constants in one chunk.");
+                },
+                error.OutOfMemory => {
+                    return error.OutOfMemory;
+                },
+            }
+        };
     }
 
     fn emitConstantIndex(self: *Self, index: usize) CompilerError!void {
@@ -342,7 +351,7 @@ pub const Compiler = struct {
             self.err("Too much code to jump over.");
         }
 
-        const jump_converted = @as(u16, @intCast(jump));
+        const jump_converted = @as(u24, @intCast(jump));
 
         self.currentChunk().code.set(offset, @intCast((jump_converted >> 8) & 0xFF)) catch unreachable;
         self.currentChunk().code.set(offset + 1, @intCast(jump_converted & 0xFF)) catch unreachable;
@@ -489,6 +498,7 @@ pub const Compiler = struct {
         self.scanner = compiler.scanner;
         self.previous = compiler.previous;
         self.current = compiler.current;
+        self.had_error = compiler.had_error;
 
         try self.currentChunk().writeClosure(.{ .obj = &final_function.obj }, self.previous.line);
 
@@ -809,7 +819,7 @@ pub const Compiler = struct {
             set_op = if (constant_index < 0xFF) .set_local else .set_local_long;
             is_const = result[1];
         } else {
-            arg = self.resolveUpvalue(&name);
+            arg = try self.resolveUpvalue(&name);
 
             if (arg) |result| {
                 constant_index = result[0];
@@ -924,7 +934,7 @@ pub const Compiler = struct {
         return null;
     }
 
-    fn addUpvalue(self: *Self, index: usize, is_local: bool) usize {
+    fn addUpvalue(self: *Self, index: usize, is_local: bool) !usize {
         const upvalue_count = self.current_function.?.upvalue_count;
         var i: usize = 0;
 
@@ -947,28 +957,28 @@ pub const Compiler = struct {
         return upvalue_count;
     }
 
-    fn resolveUpvalue(self: *Self, name: *const Token) ?struct { usize, bool } {
+    fn resolveUpvalue(self: *Self, name: *const Token) !?struct { usize, bool } {
         const enclosing = self.enclosing orelse return null;
         const local_opt = enclosing.resolveLocal(name);
 
         if (local_opt) |local| {
             enclosing.locals.data[local[0]].is_captured = true;
-            return .{ self.addUpvalue(local[0], true), local[1] };
+            return .{ try self.addUpvalue(local[0], true), local[1] };
         }
 
-        const upvalue_opt = enclosing.resolveUpvalue(name);
+        const upvalue_opt = try enclosing.resolveUpvalue(name);
 
         if (upvalue_opt) |upvalue| {
-            return .{ self.addUpvalue(upvalue[0], false), upvalue[1] };
+            return .{ try self.addUpvalue(upvalue[0], false), upvalue[1] };
         }
 
         return null;
     }
 
     fn addLocal(self: *Self, is_const: bool, name: Token) CompilerError!void {
-        if (self.local_count == u24_count) {
-            self.err("Too many local variables in a function.");
-            return;
+        // bytecode could handle more, but giving a limit of 255 to comply to tests
+        if (self.local_count == u8_count) {
+            self.err("Too many local variables in function.");
         }
 
         const local = Local{
@@ -1048,7 +1058,7 @@ pub const Compiler = struct {
     }
 
     fn argumentList(self: *Self) CompilerError!u8 {
-        var arg_count: u8 = 0;
+        var arg_count: u16 = 0;
 
         if (!self.check(.right_paren)) {
             while (true) {
@@ -1066,7 +1076,7 @@ pub const Compiler = struct {
         }
 
         self.consume(.right_paren, "Expect ')' after arguments.");
-        return arg_count;
+        return @intCast(if (arg_count > 255) 0 else arg_count);
     }
 
     fn _and(self: *Self, can_assign: bool) CompilerError!void {
@@ -1097,7 +1107,7 @@ pub const Compiler = struct {
         self.errAt(&self.current, message);
     }
 
-    fn err(self: *Self, message: []const u8) void {
+    pub fn err(self: *Self, message: []const u8) void {
         self.errAt(&self.previous, message);
     }
 
@@ -1107,7 +1117,7 @@ pub const Compiler = struct {
         }
 
         self.panic_mode = true;
-        self.io.print("[line {}] Error", .{token.line});
+        self.io.err("[line {}] Error", .{token.line});
 
         switch (token.type) {
             .eof => self.io.err(" at end", .{}),
