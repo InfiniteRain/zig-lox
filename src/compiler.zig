@@ -141,38 +141,43 @@ pub const Compiler = struct {
     loop_depth: ?usize,
     loop_start: usize,
 
-    fn init_fields(
-        self: *Self,
+    pub fn create(
         memory: *Memory,
         function_type: Obj.Function.Type,
         vm: *VM,
         io: *IoHandler,
-    ) !void {
+    ) Self {
         const blank_token = Token{ .type = .eof, .lexeme = "", .line = 1 };
 
-        self.memory = memory;
+        return .{
+            .memory = memory,
 
-        self.current_function = try Obj.Function.allocNew(memory, vm);
-        self.function_type = function_type;
+            .current_function = null,
+            .function_type = function_type,
 
-        self.enclosing = null;
-        self.scanner = undefined;
-        self.vm = vm;
-        self.current = blank_token;
-        self.previous = blank_token;
-        self.had_error = false;
-        self.panic_mode = false;
-        self.io = io;
+            .enclosing = null,
+            .scanner = undefined,
+            .vm = vm,
+            .current = blank_token,
+            .previous = blank_token,
+            .had_error = false,
+            .panic_mode = false,
+            .io = io,
 
-        self.locals = try DynamicArray(Local).init(memory);
-        self.local_count = 1;
-        self.upvalues = undefined;
-        self.scope_depth = 0;
+            .locals = undefined,
+            .local_count = 0,
+            .upvalues = undefined,
+            .scope_depth = 0,
 
-        self.loop_depth = null;
-        self.loop_start = 0;
+            .loop_depth = null,
+            .loop_start = 0,
+        };
+    }
 
-        const local = &self.locals.data[0];
+    pub fn init(self: *Self, enclosing_opt: ?*Self) !void {
+        const locals = try DynamicArray(Local).init(self.memory);
+        const current_function = try Obj.Function.allocNew(self.memory, self.vm);
+        const local = &locals.data[0];
 
         local.depth = 0;
         local.name = .{
@@ -183,42 +188,29 @@ pub const Compiler = struct {
         local.initialized = false;
         local.is_const = true;
         local.is_captured = false;
-    }
 
-    pub fn init(
-        self: *Self,
-        memory: *Memory,
-        function_type: Obj.Function.Type,
-        vm: *VM,
-        io: *IoHandler,
-    ) !void {
-        try self.init_fields(memory, function_type, vm, io);
-        vm.root_compiler = self;
-    }
+        self.current_function = current_function;
+        self.locals = locals;
+        self.local_count = 1;
 
-    fn initWithEnclosing(
-        memory: *Memory,
-        compiler: *Compiler,
-        function_type: Obj.Function.Type,
-        vm: *VM,
-        io: *IoHandler,
-    ) !Self {
-        var new_compiler: Self = undefined;
-        try new_compiler.init_fields(memory, function_type, vm, io);
-        new_compiler.enclosing = compiler;
-        new_compiler.scanner = compiler.scanner;
-        new_compiler.current = compiler.current;
-        new_compiler.previous = compiler.previous;
-
-        if (function_type != .script) {
-            new_compiler.current_function.?.name = try Obj.String.fromBufAlloc(
-                memory,
-                compiler.previous.lexeme,
-                vm,
-            );
+        if (enclosing_opt) |enclosing| {
+            self.enclosing = enclosing;
+            self.scanner = enclosing.scanner;
+            self.current = enclosing.current;
+            self.previous = enclosing.previous;
         }
 
-        return new_compiler;
+        self.vm.current_compiler = self;
+
+        if (enclosing_opt) |enclosing| {
+            if (self.function_type != .script) {
+                current_function.name = try Obj.String.fromBufAlloc(
+                    self.memory,
+                    enclosing.previous.lexeme,
+                    self.vm,
+                );
+            }
+        }
     }
 
     pub fn deinit(self: *Self) void {
@@ -368,6 +360,10 @@ pub const Compiler = struct {
             ) catch unreachable;
         }
 
+        if (self.vm.current_compiler) |compiler| {
+            self.vm.current_compiler = compiler.enclosing;
+        }
+
         return function.?;
     }
 
@@ -459,13 +455,8 @@ pub const Compiler = struct {
     }
 
     fn fun(self: *Self, function_type: Obj.Function.Type) !void {
-        var compiler = try Compiler.initWithEnclosing(
-            self.memory,
-            self,
-            function_type,
-            self.vm,
-            self.io,
-        );
+        var compiler = Compiler.create(self.memory, function_type, self.vm, self.io);
+        try compiler.init(self);
         defer compiler.deinit();
 
         compiler.beginScope();

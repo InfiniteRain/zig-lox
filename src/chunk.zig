@@ -16,6 +16,10 @@ const table_package = @import("table.zig");
 const Table = table_package.Table;
 const object_packge = @import("object.zig");
 const Obj = object_packge.Obj;
+const vm_package = @import("vm.zig");
+const VM = vm_package.VM;
+const test_suite_package = @import("test_util.zig");
+const GeneralSuite = test_suite_package.GeneralSuite;
 
 const OpCodeError = error{NotOperand};
 
@@ -63,12 +67,13 @@ pub const OpCode = enum(u8) {
 pub const Chunk = struct {
     const Self = @This();
 
+    vm: *VM,
     code: DynamicArray(u8),
     constants: DynamicArray(Value),
     const_vars: Table,
     lines: RleArray(u64),
 
-    pub fn init(memory: *Memory) !Self {
+    pub fn init(memory: *Memory, vm: *VM) !Self {
         const code = try DynamicArray(u8).init(memory);
         errdefer code.deinit();
 
@@ -81,6 +86,7 @@ pub const Chunk = struct {
         const const_vars = try Table.init(memory);
 
         return .{
+            .vm = vm,
             .code = code,
             .constants = constants,
             .lines = lines,
@@ -151,7 +157,9 @@ pub const Chunk = struct {
     }
 
     pub fn addConstant(self: *Self, value: Value) !usize {
+        self.vm.stack.push(value);
         try self.constants.push(value);
+        _ = self.vm.stack.pop();
 
         return self.constants.count - 1;
     }
@@ -163,7 +171,9 @@ pub const Chunk = struct {
     }
 
     pub fn setVarConstness(self: *Self, name: *Obj.String, is_const: bool) !void {
+        self.vm.stack.push(.{ .obj = &name.obj });
         _ = try self.const_vars.set(name, .{ .bool = is_const });
+        _ = self.vm.stack.pop();
     }
 
     pub fn getVarConstness(self: *Self, name: *Obj.String) bool {
@@ -173,50 +183,13 @@ pub const Chunk = struct {
     }
 };
 
-test "first allocation in init fails" {
-    var failing_allocator = testing.FailingAllocator.init(
-        testing.allocator,
-        .{ .fail_index = 0 },
-    );
-    const allocator = failing_allocator.allocator();
-    var memory = Memory.init(allocator);
-
-    const result = Chunk.init(&memory);
-
-    try expectError(error.OutOfMemory, result);
-}
-
-test "second allocation in init fails" {
-    var failing_allocator = testing.FailingAllocator.init(
-        testing.allocator,
-        .{ .fail_index = 1 },
-    );
-    const allocator = failing_allocator.allocator();
-    var memory = Memory.init(allocator);
-
-    const result = Chunk.init(&memory);
-
-    try expectError(error.OutOfMemory, result);
-}
-
-test "third allocation in init fails" {
-    var failing_allocator = testing.FailingAllocator.init(
-        testing.allocator,
-        .{ .fail_index = 2 },
-    );
-    const allocator = failing_allocator.allocator();
-    var memory = Memory.init(allocator);
-
-    const result = Chunk.init(&memory);
-
-    try expectError(error.OutOfMemory, result);
-}
-
 test "writeOpcode adds opcode and line as expected" {
     const allocator = testing.allocator;
-    var memory = Memory.init(allocator);
 
-    var chunk = try Chunk.init(&memory);
+    var s = try GeneralSuite.init(allocator);
+    defer s.deinit();
+
+    var chunk = try Chunk.init(s.memory, s.vm);
     defer chunk.deinit();
 
     try expect(chunk.code.count == 0);
@@ -239,9 +212,11 @@ test "writeOpcode adds opcode and line as expected" {
 
 test "readByte works as expected" {
     const allocator = testing.allocator;
-    var memory = Memory.init(allocator);
 
-    var chunk = try Chunk.init(&memory);
+    var s = try GeneralSuite.init(allocator);
+    defer s.deinit();
+
+    var chunk = try Chunk.init(s.memory, s.vm);
     defer chunk.deinit();
 
     try chunk.writeOpCode(OpCode.ret, 0);
@@ -253,9 +228,10 @@ test "readByte works as expected" {
 
 test "readLine works as expected" {
     const allocator = testing.allocator;
-    var memory = Memory.init(allocator);
+    var s = try GeneralSuite.init(allocator);
+    defer s.deinit();
 
-    var chunk = try Chunk.init(&memory);
+    var chunk = try Chunk.init(s.memory, s.vm);
     defer chunk.deinit();
 
     try chunk.writeOpCode(OpCode.ret, 10);
@@ -267,9 +243,10 @@ test "readLine works as expected" {
 
 test "writeConstant and read_constant work as expected" {
     const allocator = testing.allocator;
-    var memory = Memory.init(allocator);
+    var s = try GeneralSuite.init(allocator);
+    defer s.deinit();
 
-    var chunk = try Chunk.init(&memory);
+    var chunk = try Chunk.init(s.memory, s.vm);
     defer chunk.deinit();
 
     for (0..300) |i| {

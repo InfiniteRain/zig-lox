@@ -25,17 +25,17 @@ pub fn main() !void {
     const args = try argsAlloc(allocator);
     defer argsFree(allocator, args);
 
-    var memory = Memory.init(allocator);
-
     var io = try IoHandler.init(allocator);
     defer io.deinit();
+
+    var memory = Memory.init(allocator, &io);
 
     var vm: VM = undefined;
     try vm.init(&memory, &io);
     defer vm.deinit();
 
-    var compiler: Compiler = undefined;
-    try compiler.init(&memory, .script, &vm, &io);
+    var compiler = Compiler.create(&memory, .script, &vm, &io);
+    try compiler.init(null);
     defer compiler.deinit();
 
     switch (args.len) {

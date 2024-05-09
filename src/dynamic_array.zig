@@ -5,6 +5,8 @@ const testing = std.testing;
 const expect = testing.expect;
 const memory_package = @import("memory.zig");
 const Memory = memory_package.Memory;
+const test_suite_package = @import("test_util.zig");
+const GeneralSuite = test_suite_package.GeneralSuite;
 
 pub fn DynamicArray(comptime T: type) type {
     return struct {
@@ -53,9 +55,11 @@ pub fn DynamicArray(comptime T: type) type {
 
 test "array size gets properly reallocated" {
     const allocator = testing.allocator;
-    var memory = Memory.init(allocator);
 
-    var array = try DynamicArray(u8).init(&memory);
+    var s = try GeneralSuite.init(allocator);
+    defer s.deinit();
+
+    var array = try DynamicArray(u8).init(s.memory);
     defer array.deinit();
 
     try expect(array.data.len == 8);
@@ -87,9 +91,11 @@ test "array size gets properly reallocated" {
 
 test "array size gets reallocated when set is used" {
     const allocator = testing.allocator;
-    var memory = Memory.init(allocator);
 
-    var array = try DynamicArray(u8).init(&memory);
+    var s = try GeneralSuite.init(allocator);
+    defer s.deinit();
+
+    var array = try DynamicArray(u8).init(s.memory);
     defer array.deinit();
 
     for (0..8) |i| {

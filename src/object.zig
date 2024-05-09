@@ -8,10 +8,11 @@ const vm_package = @import("vm.zig");
 const VM = vm_package.VM;
 const chunk_package = @import("chunk.zig");
 const Chunk = chunk_package.Chunk;
+const exe_options = @import("exe_options");
 
 pub const NativeResult = union(enum) { ok: Value, err: []const u8 };
 
-pub const NativeFn = *const fn (u8, [*]Value) NativeResult;
+pub const NativeFn = *const fn (*VM, u8, [*]Value) NativeResult;
 
 pub const Obj = struct {
     const Self = @This();
@@ -44,18 +45,20 @@ pub const Obj = struct {
             string_obj.chars = heap_buf;
             string_obj.hash = string_hash;
 
+            vm.stack.push(.{ .obj = &string_obj.obj });
             _ = try vm.strings.set(string_obj, .nil);
+            _ = vm.stack.pop();
 
             return string_obj;
         }
 
         pub fn fromHeapBufAlloc(memory: *Memory, heap_buf: []u8, vm: *VM) !*String {
             const string_hash = String.hash(heap_buf);
-            const interned = vm.strings.findString(heap_buf, string_hash);
+            const interned_opt = vm.strings.findString(heap_buf, string_hash);
 
-            if (interned) |unwrapped| {
+            if (interned_opt) |interned| {
                 memory.free(heap_buf);
-                return unwrapped;
+                return interned;
             }
 
             return String.allocNew(memory, heap_buf, string_hash, vm);
@@ -63,10 +66,10 @@ pub const Obj = struct {
 
         pub fn fromBufAlloc(memory: *Memory, buf: []const u8, vm: *VM) !*String {
             const string_hash = String.hash(buf);
-            const interned = vm.strings.findString(buf, string_hash);
+            const interned_opt = vm.strings.findString(buf, string_hash);
 
-            if (interned) |unwrapped| {
-                return unwrapped;
+            if (interned_opt) |interned| {
+                return interned;
             }
 
             const heap_buf = try memory.alloc(u8, buf.len);
@@ -100,11 +103,12 @@ pub const Obj = struct {
         };
 
         pub fn allocNew(memory: *Memory, vm: *VM) !*Function {
+            const chunk = try Chunk.init(memory, vm);
             const function_obj = (try Self.fromTypeAlloc(.function, memory, vm)).as(.function);
             function_obj.arity = 0;
             function_obj.upvalue_count = 0;
             function_obj.name = null;
-            function_obj.chunk = try Chunk.init(memory);
+            function_obj.chunk = chunk;
 
             return function_obj;
         }
@@ -126,15 +130,15 @@ pub const Obj = struct {
     pub const Closure = struct {
         obj: Self,
         function: *Function,
-        upvalues: []*Upvalue,
+        upvalues: []?*Upvalue,
         upvalue_count: usize,
 
         pub fn allocNew(memory: *Memory, function: *Function, vm: *VM) !*Closure {
-            const upvalues = try memory.alloc(*Upvalue, function.upvalue_count);
+            const upvalues = try memory.alloc(?*Upvalue, function.upvalue_count);
             var i: usize = 0;
 
             while (i < function.upvalue_count) : (i += 1) {
-                upvalues[i] = undefined;
+                upvalues[i] = null;
             }
 
             const closure = (try Self.fromTypeAlloc(.closure, memory, vm)).as(.closure);
@@ -162,6 +166,7 @@ pub const Obj = struct {
     };
 
     type: Type,
+    is_marked: bool,
     next: ?*Self,
 
     pub fn free(self: *Self, memory: *Memory) void {
@@ -206,10 +211,19 @@ pub const Obj = struct {
 
         typed_obj.obj = .{
             .type = _type,
+            .is_marked = false,
             .next = vm.objects,
         };
 
         vm.objects = &typed_obj.obj;
+
+        if (comptime exe_options.log_gc) {
+            vm.io.print("{x} allocate {} for {s}\n", .{
+                @intFromPtr(&typed_obj.obj),
+                @sizeOf(TypedStruct),
+                @tagName(_type),
+            });
+        }
 
         return &typed_obj.obj;
     }

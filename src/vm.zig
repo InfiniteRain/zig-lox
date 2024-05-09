@@ -47,13 +47,28 @@ pub const CallFrame = struct {
 };
 
 fn clockNative(
+    vm: *VM,
+    arg_count: u8,
+    args: [*]Value,
+) NativeResult {
+    _ = vm;
+    _ = arg_count;
+    _ = args;
+
+    return .{ .ok = .{ .number = @as(f64, @floatFromInt(time.clock())) / time.CLOCKS_PER_SEC } };
+}
+
+fn gc(
+    vm: *VM,
     arg_count: u8,
     args: [*]Value,
 ) NativeResult {
     _ = arg_count;
     _ = args;
 
-    return .{ .ok = .{ .number = @as(f64, @floatFromInt(time.clock())) / time.CLOCKS_PER_SEC } };
+    vm.memory.collectGarbage();
+
+    return .{ .ok = .nil };
 }
 
 const Stack = struct {
@@ -110,7 +125,9 @@ pub const VM = struct {
     open_upvalues: ?*Obj.Upvalue,
     globals: Table,
     objects: ?*Obj,
-    root_compiler: ?*Compiler,
+    current_compiler: ?*Compiler,
+    gray_count: usize,
+    gray_stack: []*Obj,
 
     pub fn init(self: *Self, memory: *Memory, io: *IoHandler) !void {
         self.memory = memory;
@@ -122,9 +139,13 @@ pub const VM = struct {
         self.open_upvalues = null;
         self.globals = try Table.init(memory);
         self.objects = null;
+        self.current_compiler = null;
         self.memory.vm = self;
+        self.gray_count = 0;
+        self.gray_stack = &[0]*Obj{};
 
         try self.defineNative("clock", clockNative, 0);
+        try self.defineNative("gc", gc, 0);
     }
 
     pub fn deinit(self: *Self) void {
@@ -132,6 +153,7 @@ pub const VM = struct {
         self.strings.deinit();
         self.globals.deinit();
         Obj.freeList(self.memory, self.objects);
+        self.memory.allocator.free(self.gray_stack);
     }
 
     pub fn interpret(self: *Self, source: []const u8, compiler: *Compiler) !void {
@@ -269,11 +291,11 @@ pub const VM = struct {
                 },
                 .get_upvalue => {
                     const slot = self.readU8();
-                    self.stack.push(frame.closure.upvalues[slot].location.*);
+                    self.stack.push(frame.closure.upvalues[slot].?.location.*);
                 },
                 .set_upvalue => {
                     const slot = self.readU8();
-                    frame.closure.upvalues[slot].location.* = self.stack.peek(0);
+                    frame.closure.upvalues[slot].?.location.* = self.stack.peek(0);
                 },
                 .subtract => try self.binaryOperation(.subtract),
                 .multiply => try self.binaryOperation(.multiply),
@@ -369,7 +391,7 @@ pub const VM = struct {
                         return error.RuntimeError;
                     }
 
-                    const result = native.function(arg_count, self.stack.top - arg_count);
+                    const result = native.function(self, arg_count, self.stack.top - arg_count);
 
                     if (result == .err) {
                         self.runtimeError("{s}", .{result.err});
@@ -423,8 +445,8 @@ pub const VM = struct {
     }
 
     fn concatenate(self: *Self) !void {
-        const b = self.stack.pop().obj.as(.string);
-        const a = self.stack.pop().obj.as(.string);
+        const b = self.stack.peek(0).obj.as(.string);
+        const a = self.stack.peek(1).obj.as(.string);
 
         const new_length = a.chars.len + b.chars.len;
         const new_chars = try self.memory.alloc(u8, new_length);
@@ -432,6 +454,10 @@ pub const VM = struct {
         @memcpy(new_chars[a.chars.len..(a.chars.len + b.chars.len)], b.chars);
 
         const result = try Obj.String.fromHeapBufAlloc(self.memory, new_chars, self);
+
+        _ = self.stack.pop();
+        _ = self.stack.pop();
+
         self.stack.push(.{ .obj = &result.obj });
     }
 
@@ -559,18 +585,17 @@ pub const VM = struct {
 test "all intermediary strings should be dealloced at the end of the program" {
     const allocator = std.testing.allocator;
 
-    var memory = Memory.init(allocator);
-
     var io = try IoHandler.init(allocator);
     defer io.deinit();
 
+    var memory = Memory.init(allocator, &io);
+
     var vm: VM = undefined;
     try vm.init(&memory, &io);
-    // var vm = try VM.init(&memory, &io);
     defer vm.deinit();
 
-    var compiler: Compiler = undefined;
-    try compiler.init(&memory, .script, &vm, &io);
+    var compiler = Compiler.create(&memory, .script, &vm, &io);
+    try compiler.init(null);
     defer compiler.deinit();
 
     vm.interpret("\"st\" + \"ri\" + \"ng\";", &compiler) catch unreachable;

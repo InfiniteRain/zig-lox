@@ -5,6 +5,8 @@ const expectError = testing.expectError;
 const Allocator = std.mem.Allocator;
 const memory_package = @import("memory.zig");
 const Memory = memory_package.Memory;
+const test_suite_package = @import("test_util.zig");
+const GeneralSuite = test_suite_package.GeneralSuite;
 
 const RleError = error{IndexOutOfBounds};
 
@@ -79,9 +81,11 @@ pub fn RleArray(comptime T: type) type {
 
 test "array size gets properly reallocated" {
     const allocator = testing.allocator;
-    var memory = Memory.init(allocator);
 
-    var array = try RleArray(u8).init(&memory);
+    var s = try GeneralSuite.init(allocator);
+    defer s.deinit();
+
+    var array = try RleArray(u8).init(s.memory);
     defer array.deinit();
 
     try expect(array.entries.len == 8);
@@ -113,9 +117,11 @@ test "array size gets properly reallocated" {
 
 test "run-length encoding should work as expected" {
     const allocator = testing.allocator;
-    var memory = Memory.init(allocator);
 
-    var array = try RleArray(u8).init(&memory);
+    var s = try GeneralSuite.init(allocator);
+    defer s.deinit();
+
+    var array = try RleArray(u8).init(s.memory);
     defer array.deinit();
 
     try expect(array.entries_count == 0);
@@ -157,9 +163,11 @@ test "run-length encoding should work as expected" {
 
 test "sequencing works properly" {
     const allocator = testing.allocator;
-    var memory = Memory.init(allocator);
 
-    var array = try RleArray(u8).init(&memory);
+    var s = try GeneralSuite.init(allocator);
+    defer s.deinit();
+
+    var array = try RleArray(u8).init(s.memory);
     defer array.deinit();
 
     try expectError(error.IndexOutOfBounds, array.get(0));
