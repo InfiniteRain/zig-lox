@@ -8,6 +8,8 @@ const vm_package = @import("vm.zig");
 const VM = vm_package.VM;
 const chunk_package = @import("chunk.zig");
 const Chunk = chunk_package.Chunk;
+const table_package = @import("table.zig");
+const Table = table_package.Table;
 const exe_options = @import("exe_options");
 
 pub const NativeResult = union(enum) { ok: Value, err: []const u8 };
@@ -23,6 +25,8 @@ pub const Obj = struct {
         native,
         closure,
         upvalue,
+        class,
+        instance,
 
         pub fn TypeStruct(comptime _type: Type) type {
             return switch (_type) {
@@ -31,6 +35,8 @@ pub const Obj = struct {
                 .native => Native,
                 .closure => Closure,
                 .upvalue => Upvalue,
+                .class => Class,
+                .instance => Instance,
             };
         }
     };
@@ -165,6 +171,30 @@ pub const Obj = struct {
         }
     };
 
+    pub const Class = struct {
+        obj: Self,
+        name: *String,
+
+        pub fn allocNew(memory: *Memory, name: *String, vm: *VM) !*Class {
+            const class = (try Self.fromTypeAlloc(.class, memory, vm)).as(.class);
+            class.name = name;
+            return class;
+        }
+    };
+
+    pub const Instance = struct {
+        obj: Self,
+        class: *Class,
+        fields: Table,
+
+        pub fn allocNew(memory: *Memory, class: *Class, vm: *VM) !*Instance {
+            const instance = (try Self.fromTypeAlloc(.instance, memory, vm)).as(.instance);
+            instance.class = class;
+            instance.fields = try Table.init(memory);
+            return instance;
+        }
+    };
+
     type: Type,
     is_marked: bool,
     next: ?*Self,
@@ -174,12 +204,12 @@ pub const Obj = struct {
             .string => {
                 const string = self.as(.string);
                 memory.free(string.chars);
-                memory.destroy(self.as(.string));
+                memory.destroy(string);
             },
             .function => {
                 const function = self.as(.function);
                 function.chunk.deinit();
-                memory.destroy(self.as(.function));
+                memory.destroy(function);
             },
             .native => {
                 memory.destroy(self.as(.native));
@@ -187,10 +217,18 @@ pub const Obj = struct {
             .closure => {
                 const closure = self.as(.closure);
                 memory.free(closure.upvalues);
-                memory.destroy(self.as(.closure));
+                memory.destroy(closure);
             },
             .upvalue => {
                 memory.destroy(self.as(.upvalue));
+            },
+            .class => {
+                memory.destroy(self.as(.class));
+            },
+            .instance => {
+                const instance = self.as(.instance);
+                instance.fields.deinit();
+                memory.destroy(instance);
             },
         }
     }

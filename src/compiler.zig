@@ -79,7 +79,7 @@ pub const Compiler = struct {
         array.set(.right_brace, .{});
         array.set(.comma, .{});
         array.set(._const, .{});
-        array.set(.dot, .{});
+        array.set(.dot, .{ .infix = Self.dot, .precedence = .call });
         array.set(.minus, .{ .prefix = Self.unary, .infix = Self.binary, .precedence = .term });
         array.set(.plus, .{ .infix = Self.binary, .precedence = .term });
         array.set(.semicolon, .{});
@@ -440,6 +440,18 @@ pub const Compiler = struct {
         try self.emitBytes(.{ .call, arg_count });
     }
 
+    fn dot(self: *Self, can_assign: bool) CompilerError!void {
+        self.consume(.identifier, "Expect property name after '.'.");
+        const name = try self.identifierConstant(&self.previous, .no_change);
+
+        if (can_assign and self.match(.equal)) {
+            try self.expression();
+            try self.emitBytes(.{ .set_property, @as(u8, @intCast(name[0])) });
+        } else {
+            try self.emitBytes(.{ .get_property, @as(u8, @intCast(name[0])) });
+        }
+    }
+
     fn literal(self: *Self, can_assign: bool) CompilerError!void {
         _ = can_assign;
 
@@ -507,6 +519,18 @@ pub const Compiler = struct {
         while (i < final_function.upvalue_count) : (i += 1) {
             try self.emitBytes(.{ @as(u8, if (compiler.upvalues[i].is_local) 1 else 0), @as(u8, @intCast(compiler.upvalues[i].index)) });
         }
+    }
+
+    fn classDeclaration(self: *Self) CompilerError!void {
+        self.consume(.identifier, "Expect class name.");
+        const name_constant = try self.identifierConstant(&self.previous, .no_change);
+        try self.declareVariable(name_constant[1]);
+
+        try self.emitBytes(.{ .class, @as(u8, @intCast(name_constant[0])) });
+        try self.defineVariable(name_constant[0]);
+
+        self.consume(.left_brace, "Expect '{' before class body.");
+        self.consume(.right_brace, "Expect '}' after class body.");
     }
 
     fn funDeclaration(self: *Self) CompilerError!void {
@@ -739,7 +763,9 @@ pub const Compiler = struct {
     }
 
     fn declaration(self: *Self) CompilerError!void {
-        if (self.match(.fun)) {
+        if (self.match(.class)) {
+            try self.classDeclaration();
+        } else if (self.match(.fun)) {
             try self.funDeclaration();
         } else if (self.match(._var)) {
             try self.varDeclaration();

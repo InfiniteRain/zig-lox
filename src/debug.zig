@@ -38,6 +38,7 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
     return switch (op_code) {
         .call => byteInstruction("CALL", chunk, offset, io),
         .ret => simpleInstruction("RET", offset, io),
+        .class => constantInstruction(chunk, "CLASS", offset, io),
         .closure, .closure_long => {
             var new_offset = offset + 1;
             var constant: u24 = undefined;
@@ -101,6 +102,8 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
         .set_global_long => constantLongInstruction(chunk, "SET_GLOBAL_LONG", offset, io),
         .get_upvalue => byteInstruction("GET_UPVALUE", chunk, offset, io),
         .set_upvalue => byteInstruction("SET_UPVALUE", chunk, offset, io),
+        .get_property => constantInstruction(chunk, "GET_PROPERTY", offset, io),
+        .set_property => constantInstruction(chunk, "SET_PROPERTY", offset, io),
         .define_global => constantInstruction(chunk, "DEFINE_GLOBAL", offset, io),
         .define_global_long => constantLongInstruction(chunk, "DEFINE_GLOBAL_LONG", offset, io),
         .greater => simpleInstruction("GREATER", offset, io),

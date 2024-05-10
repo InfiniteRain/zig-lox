@@ -26,6 +26,7 @@ const OpCodeError = error{NotOperand};
 pub const OpCode = enum(u8) {
     call,
     ret,
+    class,
     closure,
     closure_long,
     close_upvalue,
@@ -51,6 +52,8 @@ pub const OpCode = enum(u8) {
     set_global_long,
     set_upvalue,
     get_upvalue,
+    set_property,
+    get_property,
     define_global,
     define_global_long,
     equal,

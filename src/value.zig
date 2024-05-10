@@ -36,6 +36,14 @@ pub const Value = union(enum) {
                     io.print("upvalue ", .{});
                     upvalue.location.print(io);
                 },
+                .class => {
+                    const class = self.obj.as(.class);
+                    io.print("{s}", .{class.name.chars});
+                },
+                .instance => {
+                    const instance = self.obj.as(.instance);
+                    io.print("{s} instance", .{instance.class.name.chars});
+                },
             },
         }
     }

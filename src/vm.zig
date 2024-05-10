@@ -309,6 +309,44 @@ pub const VM = struct {
 
                     self.stack.push(Value{ .bool = a.equals(b) });
                 },
+                .get_property => {
+                    const top = self.stack.peek(0);
+
+                    if (top != .obj or top.obj.type != .instance) {
+                        self.runtimeError("Only instances have properties.", .{});
+                        return error.RuntimeError;
+                    }
+
+                    const instance = top.obj.as(.instance);
+                    const constant = self.readConstant();
+                    const name = constant.obj.as(.string);
+                    var value: Value = undefined;
+
+                    if (instance.fields.get(name, &value)) {
+                        _ = self.stack.pop();
+                        self.stack.push(value);
+                    } else {
+                        self.runtimeError("Undefined property '{s}'.", .{name.chars});
+                        return error.RuntimeError;
+                    }
+                },
+                .set_property => {
+                    const second_to_top = self.stack.peek(1);
+
+                    if (second_to_top != .obj or second_to_top.obj.type != .instance) {
+                        self.runtimeError("Only instances have fields.", .{});
+                        return error.RuntimeError;
+                    }
+
+                    const instance = second_to_top.obj.as(.instance);
+                    const constant = self.readConstant();
+                    const name = constant.obj.as(.string);
+
+                    _ = try instance.fields.set(name, self.stack.peek(0));
+                    const value = self.stack.pop();
+                    _ = self.stack.pop();
+                    self.stack.push(value);
+                },
                 .less => try self.binaryOperation(.less),
                 .greater => try self.binaryOperation(.greater),
                 .jump => {
@@ -349,6 +387,13 @@ pub const VM = struct {
                     self.stack.push(result);
                     frame = &self.frames[self.frame_count - 1];
                 },
+                .class => {
+                    const constant = self.readConstant();
+                    const name = constant.obj.as(.string);
+
+                    self.stack.push(.{ .obj = &(try Obj.Class.allocNew(self.memory, name, self)).obj });
+                },
+
                 _ => return error.RuntimeError,
             }
         }
@@ -379,6 +424,14 @@ pub const VM = struct {
     pub fn callValue(self: *Self, callee: Value, arg_count: u8) !void {
         if (callee == .obj) {
             switch (callee.obj.type) {
+                .class => {
+                    const class = callee.obj.as(.class);
+                    const top = self.stack.top - arg_count - 1;
+                    top[0] = .{
+                        .obj = &(try Obj.Instance.allocNew(self.memory, class, self)).obj,
+                    };
+                    return;
+                },
                 .closure => return self.call(callee.obj.as(.closure), arg_count),
                 .native => {
                     const native = callee.obj.as(.native);

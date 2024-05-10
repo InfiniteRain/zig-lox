@@ -179,6 +179,17 @@ pub const Memory = struct {
         }
 
         switch (object.type) {
+            .class => {
+                const class = object.as(.class);
+
+                self.markObject(&class.name.obj);
+            },
+            .instance => {
+                const instance = object.as(.instance);
+
+                self.markObject(&instance.class.obj);
+                self.markTable(&instance.fields);
+            },
             .upvalue => self.markValue(object.as(.upvalue).closed),
             .function => {
                 const function = object.as(.function);
