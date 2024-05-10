@@ -82,6 +82,7 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
         .jump => jumpInstruction("JUMP", 1, chunk, offset, io),
         .jump_if_false => jumpInstruction("JUMP_IF_FALSE", 1, chunk, offset, io),
         .add => simpleInstruction("ADD", offset, io),
+        .in => simpleInstruction("IN", offset, io),
         .nil => simpleInstruction("NIL", offset, io),
         .true => simpleInstruction("TRUE", offset, io),
         .false => simpleInstruction("FALSE", offset, io),

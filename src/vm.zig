@@ -393,7 +393,26 @@ pub const VM = struct {
 
                     self.stack.push(.{ .obj = &(try Obj.Class.allocNew(self.memory, name, self)).obj });
                 },
+                .in => {
+                    const b_val = self.stack.pop();
+                    const a_val = self.stack.pop();
 
+                    if (a_val != .obj or a_val.obj.type != .string) {
+                        self.runtimeError("Only strings could be used as left operand to 'in'.", .{});
+                        return error.RuntimeError;
+                    }
+
+                    if (b_val != .obj or b_val.obj.type != .instance) {
+                        self.runtimeError("Only instances could be used as right operand to 'in'.", .{});
+                        return error.RuntimeError;
+                    }
+
+                    const instance = b_val.obj.as(.instance);
+                    const field_name = a_val.obj.as(.string);
+                    var value: Value = undefined;
+
+                    self.stack.push(.{ .bool = instance.fields.get(field_name, &value) });
+                },
                 _ => return error.RuntimeError,
             }
         }

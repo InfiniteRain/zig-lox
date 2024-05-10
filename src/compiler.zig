@@ -34,6 +34,7 @@ const Precedence = enum(u8) {
     assignment,
     _or,
     _and,
+    in,
     equality,
     comparison,
     term,
@@ -113,6 +114,7 @@ pub const Compiler = struct {
         array.set(._var, .{});
         array.set(._while, .{});
         array.set(._error, .{});
+        array.set(.in, .{ .infix = Self.binary, .precedence = .in });
         array.set(.eof, .{});
         break :blk array;
     };
@@ -429,6 +431,7 @@ pub const Compiler = struct {
             .greater_equal => try self.emitBytes(.{ .less, .not }),
             .less => try self.emitByte(.less),
             .less_equal => try self.emitBytes(.{ .greater, .not }),
+            .in => try self.emitByte(.in),
             else => unreachable,
         }
     }

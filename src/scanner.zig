@@ -51,6 +51,7 @@ pub const TokenType = enum {
     _while,
     _switch,
     _continue,
+    in,
 
     _error,
     eof,
@@ -288,7 +289,16 @@ pub const Scanner = struct {
                 else
                     .identifier;
             },
-            'i' => self.checkKeyword(1, "f", ._if),
+            'i' => {
+                return if (self.current - self.start > 1)
+                    switch (self.source[self.start + 1]) {
+                        'f' => self.checkKeyword(2, "", ._if),
+                        'n' => self.checkKeyword(2, "", .in),
+                        else => .identifier,
+                    }
+                else
+                    .identifier;
+            },
             'n' => self.checkKeyword(1, "il", .nil),
             'o' => self.checkKeyword(1, "r", ._or),
             'p' => self.checkKeyword(1, "rint", .print),
