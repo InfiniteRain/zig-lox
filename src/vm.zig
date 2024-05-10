@@ -126,6 +126,33 @@ fn setField(
     return .{ .ok = .nil };
 }
 
+fn deleteField(
+    vm: *VM,
+    arg_count: u8,
+    args: [*]Value,
+) NativeResult {
+    _ = vm;
+    _ = arg_count;
+
+    if (args[0].obj.type != .instance) {
+        return .{ .err = "Expect argument 1 to be an instance." };
+    }
+
+    if (args[1].obj.type != .string) {
+        return .{ .err = "Expect argument 2 to be a string." };
+    }
+
+    const instance = args[0].obj.as(.instance);
+    const field_name = args[1].obj.as(.string);
+    const result = instance.fields.delete(field_name);
+
+    if (!result) {
+        return .{ .err = "Field doesn't exist." };
+    }
+
+    return .{ .ok = .nil };
+}
+
 const Stack = struct {
     const Self = @This();
     const max_stack = VM.max_frames * 256;
@@ -203,6 +230,7 @@ pub const VM = struct {
         try self.defineNative("gc", gc, 0);
         try self.defineNative("getField", getField, 2);
         try self.defineNative("setField", setField, 3);
+        try self.defineNative("deleteField", deleteField, 2);
     }
 
     pub fn deinit(self: *Self) void {
