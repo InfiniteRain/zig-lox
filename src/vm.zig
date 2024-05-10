@@ -71,6 +71,61 @@ fn gc(
     return .{ .ok = .nil };
 }
 
+fn getField(
+    vm: *VM,
+    arg_count: u8,
+    args: [*]Value,
+) NativeResult {
+    _ = vm;
+    _ = arg_count;
+
+    if (args[0].obj.type != .instance) {
+        return .{ .err = "Expect argument 1 to be an instance." };
+    }
+
+    if (args[1].obj.type != .string) {
+        return .{ .err = "Expect argument 2 to be a string." };
+    }
+
+    const instance = args[0].obj.as(.instance);
+    const field_name = args[1].obj.as(.string);
+
+    var value: Value = undefined;
+    const result = instance.fields.get(field_name, &value);
+
+    if (!result) {
+        return .{ .err = "Field doesn't exist." };
+    }
+
+    return .{ .ok = value };
+}
+
+fn setField(
+    vm: *VM,
+    arg_count: u8,
+    args: [*]Value,
+) NativeResult {
+    _ = vm;
+    _ = arg_count;
+
+    if (args[0].obj.type != .instance) {
+        return .{ .err = "Expect argument 1 to be an instance." };
+    }
+
+    if (args[1].obj.type != .string) {
+        return .{ .err = "Expect argument 2 to be a string." };
+    }
+
+    const instance = args[0].obj.as(.instance);
+    const field_name = args[1].obj.as(.string);
+
+    _ = instance.fields.set(field_name, args[2]) catch {
+        return .{ .err = "Internal error." };
+    };
+
+    return .{ .ok = .nil };
+}
+
 const Stack = struct {
     const Self = @This();
     const max_stack = VM.max_frames * 256;
@@ -146,6 +201,8 @@ pub const VM = struct {
 
         try self.defineNative("clock", clockNative, 0);
         try self.defineNative("gc", gc, 0);
+        try self.defineNative("getField", getField, 2);
+        try self.defineNative("setField", setField, 3);
     }
 
     pub fn deinit(self: *Self) void {
