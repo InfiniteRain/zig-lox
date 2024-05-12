@@ -179,10 +179,17 @@ pub const Memory = struct {
         }
 
         switch (object.type) {
+            .bound_method => {
+                const bound_method = object.as(.bound_method);
+
+                self.markValue(bound_method.receiver);
+                self.markObject(&bound_method.method.obj);
+            },
             .class => {
                 const class = object.as(.class);
 
                 self.markObject(&class.name.obj);
+                self.markTable(&class.methods);
             },
             .instance => {
                 const instance = object.as(.instance);
@@ -239,6 +246,10 @@ pub const Memory = struct {
 
         self.markTable(&vm.globals);
         self.markCompilerRoots();
+
+        if (vm.init_string) |init_string| {
+            self.markObject(&init_string.obj);
+        }
     }
 
     fn markCompilerRoots(self: *Self) void {

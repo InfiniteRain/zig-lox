@@ -65,6 +65,8 @@ pub const OpCode = enum(u8) {
     divide,
     not,
     in,
+    method,
+    invoke,
     _,
 };
 

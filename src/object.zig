@@ -27,6 +27,7 @@ pub const Obj = struct {
         upvalue,
         class,
         instance,
+        bound_method,
 
         pub fn TypeStruct(comptime _type: Type) type {
             return switch (_type) {
@@ -37,6 +38,7 @@ pub const Obj = struct {
                 .upvalue => Upvalue,
                 .class => Class,
                 .instance => Instance,
+                .bound_method => BoundMethod,
             };
         }
     };
@@ -105,6 +107,8 @@ pub const Obj = struct {
 
         pub const Type = enum {
             function,
+            initializer,
+            method,
             script,
         };
 
@@ -174,10 +178,12 @@ pub const Obj = struct {
     pub const Class = struct {
         obj: Self,
         name: *String,
+        methods: Table,
 
         pub fn allocNew(memory: *Memory, name: *String, vm: *VM) !*Class {
             const class = (try Self.fromTypeAlloc(.class, memory, vm)).as(.class);
             class.name = name;
+            class.methods = try Table.init(memory);
             return class;
         }
     };
@@ -192,6 +198,24 @@ pub const Obj = struct {
             instance.class = class;
             instance.fields = try Table.init(memory);
             return instance;
+        }
+    };
+
+    pub const BoundMethod = struct {
+        obj: Self,
+        receiver: Value,
+        method: *Closure,
+
+        pub fn allocNew(
+            memory: *Memory,
+            receiver: Value,
+            method: *Closure,
+            vm: *VM,
+        ) !*BoundMethod {
+            const bound_method = (try Self.fromTypeAlloc(.bound_method, memory, vm)).as(.bound_method);
+            bound_method.receiver = receiver;
+            bound_method.method = method;
+            return bound_method;
         }
     };
 
@@ -223,12 +247,17 @@ pub const Obj = struct {
                 memory.destroy(self.as(.upvalue));
             },
             .class => {
-                memory.destroy(self.as(.class));
+                const class = self.as(.class);
+                class.methods.deinit();
+                memory.destroy(class);
             },
             .instance => {
                 const instance = self.as(.instance);
                 instance.fields.deinit();
                 memory.destroy(instance);
+            },
+            .bound_method => {
+                memory.destroy(self.as(.bound_method));
             },
         }
     }

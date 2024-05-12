@@ -44,6 +44,10 @@ pub const Value = union(enum) {
                     const instance = self.obj.as(.instance);
                     io.print("{s} instance", .{instance.class.name.chars});
                 },
+                .bound_method => {
+                    const bound_method = self.obj.as(.bound_method);
+                    Self.printFunction(bound_method.method.function, io);
+                },
             },
         }
     }

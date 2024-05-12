@@ -39,6 +39,7 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
         .call => byteInstruction("CALL", chunk, offset, io),
         .ret => simpleInstruction("RET", offset, io),
         .class => constantInstruction(chunk, "CLASS", offset, io),
+        .method => constantInstruction(chunk, "METHOD", offset, io),
         .closure, .closure_long => {
             var new_offset = offset + 1;
             var constant: u24 = undefined;
@@ -51,7 +52,7 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
                 new_offset += 3;
             }
 
-            io.print("{s: <18} {: >4} ", .{ "CLOSURE", constant });
+            io.print("{s: <18} {: <4} ", .{ "CLOSURE", constant });
             chunk.constants.data[constant].print(io);
             io.print("\n", .{});
 
@@ -65,7 +66,7 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
                 new_offset += 1;
 
                 io.print("{:0>4}    |                         {s} {}\n", .{
-                    offset - 2,
+                    new_offset - 2,
                     if (is_local == 1) "local" else "upvalue",
                     index,
                 });
@@ -109,6 +110,7 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
         .define_global_long => constantLongInstruction(chunk, "DEFINE_GLOBAL_LONG", offset, io),
         .greater => simpleInstruction("GREATER", offset, io),
         .less => simpleInstruction("LESS", offset, io),
+        .invoke => invokeInstruction("INVOKE", chunk, offset, io),
         _ => blk: {
             io.print("{s: <18} Error: invalid opcode, got {}\n", .{ "?", instruction });
             break :blk offset + 1;
@@ -118,7 +120,7 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
 
 fn constantInstruction(chunk: *const Chunk, name: []const u8, offset: usize, io: *IoHandler) usize {
     const index = chunk.readByte(offset + 1);
-    io.print("{s: <18} {: >4} '", .{ name, index });
+    io.print("{s: <18} {: <4} '", .{ name, index });
     extractConstant(chunk, index).print(io);
     io.print("'\n", .{});
 
@@ -131,7 +133,7 @@ fn constantLongInstruction(chunk: *const Chunk, name: []const u8, offset: usize,
     const right = chunk.readByte(offset + 3);
     const index: usize = (left << 16) | (middle << 8) | right;
 
-    io.print("{s: <18} {: >4} '", .{ name, index });
+    io.print("{s: <18} {: <4} '", .{ name, index });
     extractConstant(chunk, index).print(io);
     io.print("'\n", .{});
 
@@ -145,7 +147,7 @@ fn simpleInstruction(name: []const u8, offset: usize, io: *IoHandler) usize {
 
 fn byteInstruction(name: []const u8, chunk: *const Chunk, offset: usize, io: *IoHandler) usize {
     const slot = chunk.code.data[offset + 1];
-    io.print("{s: <18} {: >4}\n", .{ name, slot });
+    io.print("{s: <18} {: <4}\n", .{ name, slot });
     return offset + 2;
 }
 
@@ -162,7 +164,7 @@ fn threeByteInstruction(name: []const u8, chunk: *const Chunk, offset: usize, io
     const middle: u24 = @intCast(chunk.code.data[offset + 2]);
     const right: u24 = @intCast(chunk.code.data[offset + 3]);
 
-    io.print("{s: <18} {: >4}\n", .{ name, (left << 16) | (middle << 8) | right });
+    io.print("{s: <18} {: <4}\n", .{ name, (left << 16) | (middle << 8) | right });
     return offset + 4;
 }
 
@@ -171,11 +173,26 @@ fn jumpInstruction(name: []const u8, sign: i32, chunk: *const Chunk, offset: usi
     const right: u16 = @intCast(chunk.code.data[offset + 2]);
     const jump = (left << 8) | right;
 
-    io.print("{s: <18} {: >4} -> {}\n", .{
+    io.print("{s: <18} {: <4} -> {}\n", .{
         name,
         offset,
         @as(i32, @intCast(offset)) + 3 + sign * @as(i32, @intCast(jump)),
     });
+
+    return offset + 3;
+}
+
+fn invokeInstruction(name: []const u8, chunk: *const Chunk, offset: usize, io: *IoHandler) usize {
+    const constant = chunk.code.data[offset + 1];
+    const arg_count = chunk.code.data[offset + 2];
+
+    io.print("{s: <18} ({} args) {: >4} '", .{
+        name,
+        arg_count,
+        constant,
+    });
+    chunk.constants.data[constant].print(io);
+    io.print("'\n", .{});
 
     return offset + 3;
 }

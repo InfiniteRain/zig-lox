@@ -1,4 +1,5 @@
 const std = @import("std");
+const mem = std.mem;
 const parseFloat = std.fmt.parseFloat;
 const EnumArray = std.EnumArray;
 const scanner_package = @import("scanner.zig");
@@ -70,6 +71,10 @@ pub const Upvalue = struct {
     is_local: bool,
 };
 
+pub const ClassCompiler = struct {
+    enclosing: ?*ClassCompiler,
+};
+
 pub const Compiler = struct {
     const Self = @This();
     const rules = blk: {
@@ -109,7 +114,7 @@ pub const Compiler = struct {
         array.set(.print, .{});
         array.set(._return, .{});
         array.set(.super, .{});
-        array.set(.this, .{});
+        array.set(.this, .{ .prefix = Self.this });
         array.set(.true, .{ .prefix = Self.literal });
         array.set(._var, .{});
         array.set(._while, .{});
@@ -124,6 +129,7 @@ pub const Compiler = struct {
     memory: *Memory,
 
     current_function: ?*Obj.Function,
+    current_class: ?*ClassCompiler,
     function_type: Obj.Function.Type,
 
     enclosing: ?*Compiler,
@@ -155,6 +161,7 @@ pub const Compiler = struct {
             .memory = memory,
 
             .current_function = null,
+            .current_class = null,
             .function_type = function_type,
 
             .enclosing = null,
@@ -184,10 +191,10 @@ pub const Compiler = struct {
         local.depth = 0;
         local.name = .{
             .type = .identifier,
-            .lexeme = &[0]u8{},
+            .lexeme = if (self.function_type != .function) "this" else "",
             .line = 0,
         };
-        local.initialized = false;
+        local.initialized = true;
         local.is_const = true;
         local.is_captured = false;
 
@@ -200,6 +207,7 @@ pub const Compiler = struct {
             self.scanner = enclosing.scanner;
             self.current = enclosing.current;
             self.previous = enclosing.previous;
+            self.current_class = enclosing.current_class;
         }
 
         self.vm.current_compiler = self;
@@ -326,7 +334,13 @@ pub const Compiler = struct {
     }
 
     fn emitReturn(self: *Self) CompilerError!void {
-        try self.emitBytes(.{ .nil, .ret });
+        if (self.function_type == .initializer) {
+            try self.emitBytes(.{ .get_local, 0 });
+        } else {
+            try self.emitByte(.nil);
+        }
+
+        try self.emitByte(.ret);
     }
 
     fn emitConstant(self: *Self, value: Value) CompilerError!void {
@@ -445,13 +459,17 @@ pub const Compiler = struct {
 
     fn dot(self: *Self, can_assign: bool) CompilerError!void {
         self.consume(.identifier, "Expect property name after '.'.");
-        const name = try self.identifierConstant(&self.previous, .no_change);
+        const name_result = try self.identifierConstant(&self.previous, .no_change);
+        const name: u8 = @intCast(name_result[0]);
 
         if (can_assign and self.match(.equal)) {
             try self.expression();
-            try self.emitBytes(.{ .set_property, @as(u8, @intCast(name[0])) });
+            try self.emitBytes(.{ .set_property, name });
+        } else if (self.match(.left_paren)) {
+            const arg_count = try self.argumentList();
+            try self.emitBytes(.{ .invoke, name, arg_count });
         } else {
-            try self.emitBytes(.{ .get_property, @as(u8, @intCast(name[0])) });
+            try self.emitBytes(.{ .get_property, name });
         }
     }
 
@@ -524,16 +542,44 @@ pub const Compiler = struct {
         }
     }
 
+    fn method(self: *Self) CompilerError!void {
+        self.consume(.identifier, "Expect method name.");
+
+        const constant = try self.identifierConstant(&self.previous, .no_change);
+        const function_type = if (mem.eql(u8, self.previous.lexeme, "init"))
+            Obj.Function.Type.initializer
+        else
+            Obj.Function.Type.method;
+
+        try self.fun(function_type);
+        try self.emitBytes(.{ .method, @as(u8, @intCast(constant[0])) });
+    }
+
     fn classDeclaration(self: *Self) CompilerError!void {
         self.consume(.identifier, "Expect class name.");
+        const class_name = self.previous;
         const name_constant = try self.identifierConstant(&self.previous, .no_change);
         try self.declareVariable(name_constant[1]);
 
         try self.emitBytes(.{ .class, @as(u8, @intCast(name_constant[0])) });
         try self.defineVariable(name_constant[0]);
 
+        var class_compiler = ClassCompiler{
+            .enclosing = self.current_class,
+        };
+        self.current_class = &class_compiler;
+
+        try self.namedVariable(class_name, false);
         self.consume(.left_brace, "Expect '{' before class body.");
+
+        while (!self.check(.right_brace) and !self.check(.eof)) {
+            try self.method();
+        }
+
         self.consume(.right_brace, "Expect '}' after class body.");
+        try self.emitByte(.pop);
+
+        self.current_class = class_compiler.enclosing;
     }
 
     fn funDeclaration(self: *Self) CompilerError!void {
@@ -705,6 +751,10 @@ pub const Compiler = struct {
         if (self.match(.semicolon)) {
             try self.emitReturn();
         } else {
+            if (self.function_type == .initializer) {
+                self.err("Can't return a value from an initializer.");
+            }
+
             try self.expression();
             self.consume(.semicolon, "Expect ';' after return value.");
             try self.emitByte(.ret);
@@ -881,6 +931,17 @@ pub const Compiler = struct {
 
     fn variable(self: *Self, can_assign: bool) CompilerError!void {
         try self.namedVariable(self.previous, can_assign);
+    }
+
+    fn this(self: *Self, can_assign: bool) CompilerError!void {
+        _ = can_assign;
+
+        if (self.current_class == null) {
+            self.err("Can't use 'this' outside of a class.");
+            return;
+        }
+
+        try self.variable(false);
     }
 
     fn unary(self: *Self, can_assign: bool) CompilerError!void {
