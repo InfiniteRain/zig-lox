@@ -113,10 +113,10 @@ pub const Table = struct {
         }
     }
 
-    fn addAllFrom(self: *Self, from: *Self) void {
+    pub fn addAllFrom(self: *Self, from: *Self) !void {
         for (from.entries) |*entry| {
             if (entry.key != null) {
-                self.set(entry.key, entry.value);
+                _ = try self.set(entry.key.?, entry.value);
             }
         }
     }

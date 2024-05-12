@@ -569,6 +569,18 @@ pub const Compiler = struct {
         };
         self.current_class = &class_compiler;
 
+        if (self.match(.less)) {
+            self.consume(.identifier, "Expect superclass name.");
+            try self.variable(false);
+
+            if (class_name.lexemeEquals(&self.previous)) {
+                self.err("A class can't inherit from itself.");
+            }
+
+            try self.namedVariable(class_name, false);
+            try self.emitByte(.inherit);
+        }
+
         try self.namedVariable(class_name, false);
         self.consume(.left_brace, "Expect '{' before class body.");
 

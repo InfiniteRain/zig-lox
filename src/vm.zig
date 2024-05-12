@@ -281,6 +281,20 @@ pub const VM = struct {
             const instruction = self.readOpCode();
 
             switch (instruction) {
+                .inherit => {
+                    const superclass = self.stack.peek(1);
+
+                    if (superclass != .obj or superclass.obj.type != .class) {
+                        self.runtimeError("Superclass must be a class.", .{});
+                        return error.RuntimeError;
+                    }
+
+                    const subclass = self.stack.peek(0).obj.as(.class);
+
+                    try subclass.methods.addAllFrom(&superclass.obj.as(.class).methods);
+
+                    _ = self.stack.pop();
+                },
                 .invoke => {
                     const constant = self.readConstant();
                     const method = constant.obj.as(.string);

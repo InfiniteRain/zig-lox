@@ -36,10 +36,11 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
     const op_code = @as(OpCode, @enumFromInt(instruction));
 
     return switch (op_code) {
+        .inherit => simpleInstruction("INHERIT", offset, io),
         .call => byteInstruction("CALL", chunk, offset, io),
         .ret => simpleInstruction("RET", offset, io),
-        .class => constantInstruction(chunk, "CLASS", offset, io),
-        .method => constantInstruction(chunk, "METHOD", offset, io),
+        .class => constantInstruction("CLASS", chunk, offset, io),
+        .method => constantInstruction("METHOD", chunk, offset, io),
         .closure, .closure_long => {
             var new_offset = offset + 1;
             var constant: u24 = undefined;
@@ -76,8 +77,8 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
         },
         .close_upvalue => simpleInstruction("CLOSE_UPVALUE", offset, io),
         .loop => jumpInstruction("LOOP", -1, chunk, offset, io),
-        .constant => constantInstruction(chunk, "CONSTANT", offset, io),
-        .constant_long => constantLongInstruction(chunk, "CONSTANT_LONG", offset, io),
+        .constant => constantInstruction("CONSTANT", chunk, offset, io),
+        .constant_long => constantLongInstruction("CONSTANT_LONG", chunk, offset, io),
         .negate => simpleInstruction("NEGATE", offset, io),
         .print => simpleInstruction("PRINT", offset, io),
         .jump => jumpInstruction("JUMP", 1, chunk, offset, io),
@@ -98,16 +99,16 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
         .get_local_long => threeByteInstruction("GET_LOCAL_LONG", chunk, offset, io),
         .set_local => byteInstruction("SET_LOCAL", chunk, offset, io),
         .set_local_long => threeByteInstruction("SET_LOCAL_LONG", chunk, offset, io),
-        .get_global => constantInstruction(chunk, "GET_GLOBAL", offset, io),
-        .get_global_long => constantLongInstruction(chunk, "GET_GLOBAL_LONG", offset, io),
-        .set_global => constantInstruction(chunk, "SET_GLOBAL", offset, io),
-        .set_global_long => constantLongInstruction(chunk, "SET_GLOBAL_LONG", offset, io),
+        .get_global => constantInstruction("GET_GLOBAL", chunk, offset, io),
+        .get_global_long => constantLongInstruction("GET_GLOBAL_LONG", chunk, offset, io),
+        .set_global => constantInstruction("SET_GLOBAL", chunk, offset, io),
+        .set_global_long => constantLongInstruction("SET_GLOBAL_LONG", chunk, offset, io),
         .get_upvalue => byteInstruction("GET_UPVALUE", chunk, offset, io),
         .set_upvalue => byteInstruction("SET_UPVALUE", chunk, offset, io),
-        .get_property => constantInstruction(chunk, "GET_PROPERTY", offset, io),
-        .set_property => constantInstruction(chunk, "SET_PROPERTY", offset, io),
-        .define_global => constantInstruction(chunk, "DEFINE_GLOBAL", offset, io),
-        .define_global_long => constantLongInstruction(chunk, "DEFINE_GLOBAL_LONG", offset, io),
+        .get_property => constantInstruction("GET_PROPERTY", chunk, offset, io),
+        .set_property => constantInstruction("SET_PROPERTY", chunk, offset, io),
+        .define_global => constantInstruction("DEFINE_GLOBAL", chunk, offset, io),
+        .define_global_long => constantLongInstruction("DEFINE_GLOBAL_LONG", chunk, offset, io),
         .greater => simpleInstruction("GREATER", offset, io),
         .less => simpleInstruction("LESS", offset, io),
         .invoke => invokeInstruction("INVOKE", chunk, offset, io),
@@ -118,7 +119,7 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
     };
 }
 
-fn constantInstruction(chunk: *const Chunk, name: []const u8, offset: usize, io: *IoHandler) usize {
+fn constantInstruction(name: []const u8, chunk: *const Chunk, offset: usize, io: *IoHandler) usize {
     const index = chunk.readByte(offset + 1);
     io.print("{s: <18} {: <4} '", .{ name, index });
     extractConstant(chunk, index).print(io);
@@ -127,7 +128,7 @@ fn constantInstruction(chunk: *const Chunk, name: []const u8, offset: usize, io:
     return offset + 2;
 }
 
-fn constantLongInstruction(chunk: *const Chunk, name: []const u8, offset: usize, io: *IoHandler) usize {
+fn constantLongInstruction(name: []const u8, chunk: *const Chunk, offset: usize, io: *IoHandler) usize {
     const left: u24 = chunk.readByte(offset + 1);
     const middle: u24 = chunk.readByte(offset + 2);
     const right = chunk.readByte(offset + 3);
