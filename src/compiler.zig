@@ -73,6 +73,7 @@ pub const Upvalue = struct {
 
 pub const ClassCompiler = struct {
     enclosing: ?*ClassCompiler,
+    has_super_class: bool,
 };
 
 pub const Compiler = struct {
@@ -113,7 +114,7 @@ pub const Compiler = struct {
         array.set(._or, .{ .infix = Self._or, .precedence = ._or });
         array.set(.print, .{});
         array.set(._return, .{});
-        array.set(.super, .{});
+        array.set(.super, .{ .prefix = Self.super });
         array.set(.this, .{ .prefix = Self.this });
         array.set(.true, .{ .prefix = Self.literal });
         array.set(._var, .{});
@@ -208,6 +209,7 @@ pub const Compiler = struct {
             self.current = enclosing.current;
             self.previous = enclosing.previous;
             self.current_class = enclosing.current_class;
+            self.had_error = enclosing.had_error;
         }
 
         self.vm.current_compiler = self;
@@ -566,6 +568,7 @@ pub const Compiler = struct {
 
         var class_compiler = ClassCompiler{
             .enclosing = self.current_class,
+            .has_super_class = false,
         };
         self.current_class = &class_compiler;
 
@@ -577,8 +580,14 @@ pub const Compiler = struct {
                 self.err("A class can't inherit from itself.");
             }
 
+            self.beginScope();
+            try self.addLocal(true, Self.syntheticToken("super"));
+            try self.defineVariable(0);
+
             try self.namedVariable(class_name, false);
             try self.emitByte(.inherit);
+
+            class_compiler.has_super_class = true;
         }
 
         try self.namedVariable(class_name, false);
@@ -590,6 +599,10 @@ pub const Compiler = struct {
 
         self.consume(.right_brace, "Expect '}' after class body.");
         try self.emitByte(.pop);
+
+        if (class_compiler.has_super_class) {
+            _ = try self.endScope();
+        }
 
         self.current_class = class_compiler.enclosing;
     }
@@ -943,6 +956,36 @@ pub const Compiler = struct {
 
     fn variable(self: *Self, can_assign: bool) CompilerError!void {
         try self.namedVariable(self.previous, can_assign);
+    }
+
+    fn syntheticToken(text: []const u8) Token {
+        return .{ .type = .eof, .lexeme = text, .line = 0 };
+    }
+
+    fn super(self: *Self, can_assign: bool) CompilerError!void {
+        _ = can_assign;
+
+        if (self.current_class == null) {
+            self.err("Can't use 'super' outside of a class.");
+        } else if (!self.current_class.?.has_super_class) {
+            self.err("Can't use 'super' in a class with no superclass.");
+        }
+
+        self.consume(.dot, "Expect '.' after 'super'.");
+        self.consume(.identifier, "Expect superclass method name.");
+        const name = try self.identifierConstant(&self.previous, .no_change);
+
+        try self.namedVariable(Self.syntheticToken("this"), false);
+
+        if (self.match(.left_paren)) {
+            const arg_count = try self.argumentList();
+            try self.namedVariable(syntheticToken("super"), false);
+            try self.emitBytes(.{ .super_invoke, @as(u8, @intCast(name[0])) });
+            try self.emitByte(arg_count);
+        } else {
+            try self.namedVariable(Self.syntheticToken("super"), false);
+            try self.emitBytes(.{ .get_super, @as(u8, @intCast(name[0])) });
+        }
     }
 
     fn this(self: *Self, can_assign: bool) CompilerError!void {

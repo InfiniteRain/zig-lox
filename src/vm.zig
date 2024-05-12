@@ -281,6 +281,25 @@ pub const VM = struct {
             const instruction = self.readOpCode();
 
             switch (instruction) {
+                .super_invoke => {
+                    const constant = self.readConstant();
+                    const method = constant.obj.as(.string);
+                    const arg_count = self.readU8();
+                    const superclass = self.stack.pop().obj.as(.class);
+
+                    try self.invokeFromClass(superclass, method, arg_count);
+
+                    frame = &self.frames[self.frame_count - 1];
+                },
+                .get_super => {
+                    const constant = self.readConstant();
+                    const name = constant.obj.as(.string);
+                    const superclass = self.stack.pop().obj.as(.class);
+
+                    if (!(try self.bindMethod(superclass, name))) {
+                        return error.RuntimeError;
+                    }
+                },
                 .inherit => {
                     const superclass = self.stack.peek(1);
 

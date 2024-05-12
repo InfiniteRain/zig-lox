@@ -36,6 +36,8 @@ pub fn disassembleInstruction(chunk: *const Chunk, offset: usize, io: *IoHandler
     const op_code = @as(OpCode, @enumFromInt(instruction));
 
     return switch (op_code) {
+        .super_invoke => invokeInstruction("SUPER_INVOKE", chunk, offset, io),
+        .get_super => constantInstruction("GET_SUPER", chunk, offset, io),
         .inherit => simpleInstruction("INHERIT", offset, io),
         .call => byteInstruction("CALL", chunk, offset, io),
         .ret => simpleInstruction("RET", offset, io),

@@ -24,6 +24,8 @@ const GeneralSuite = test_suite_package.GeneralSuite;
 const OpCodeError = error{NotOperand};
 
 pub const OpCode = enum(u8) {
+    super_invoke,
+    get_super,
     inherit,
     call,
     ret,
