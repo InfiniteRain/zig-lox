@@ -8,12 +8,14 @@ pub fn build(b: *std.Build) void {
     const trace_execution_option = b.option(bool, "trace-execution", "Trace code execution.") orelse false;
     const stress_gc_option = b.option(bool, "stress-gc", "Stress garbage collection.") orelse false;
     const log_gc_option = b.option(bool, "log-gc", "Log garbage collection.") orelse false;
+    const static = b.option(bool, "static", "No dynamic links") orelse false;
 
     const exe_options = b.addOptions();
     exe_options.addOption(bool, "print_code", print_code_option);
     exe_options.addOption(bool, "trace_execution", trace_execution_option);
     exe_options.addOption(bool, "stress_gc", stress_gc_option);
     exe_options.addOption(bool, "log_gc", log_gc_option);
+    exe_options.addOption(bool, "static", static);
 
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which

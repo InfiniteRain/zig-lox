@@ -229,7 +229,9 @@ pub const VM = struct {
         self.init_string = null;
         self.init_string = try Obj.String.fromBufAlloc(memory, "init", self);
 
-        try self.defineNative("clock", clockNative, 0);
+        if (!exe_options.static) {
+            try self.defineNative("clock", clockNative, 0);
+        }
         try self.defineNative("gc", gc, 0);
         try self.defineNative("getField", getField, 2);
         try self.defineNative("setField", setField, 3);
