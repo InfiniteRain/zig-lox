@@ -98,7 +98,7 @@ pub const Table = struct {
             return null;
         }
 
-        var index = hash % self.entries.len;
+        var index = hash & (self.entries.len - 1);
 
         while (true) : (index = (index + 1) % self.entries.len) {
             const entry = &self.entries[index];
@@ -147,10 +147,10 @@ pub const Table = struct {
     }
 
     fn findEntry(entries: []Entry, key: *Obj.String) *Entry {
-        var index = key.hash % entries.len;
+        var index = key.hash & (entries.len - 1);
         var tombstone: ?*Entry = null;
 
-        while (true) : (index = (index + 1) % entries.len) {
+        while (true) : (index = (index + 1) & (entries.len - 1)) {
             const entry = &entries[index];
 
             if (entry.key == key) {
