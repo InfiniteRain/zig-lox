@@ -9,7 +9,7 @@ implementation also has some additional features:
 1. const variables, prefixed with `const`,
 2. bytecode support for 2^24 locals per scope (compilation disabled to make tests pass),
 3. switch statement (identical to C, but doesn't require `break` keyword),
-4. supports `continue` statemnt,
+4. supports `continue` statement,
 5. native functions have arity checking,
 6. native functions can return a runtime error,
 7. `in` keyword to check if a property exists on an instance `"property" in instance`,
