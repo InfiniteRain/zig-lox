@@ -28,7 +28,7 @@ time into this.
 
 The runtime could be installed and used in the following way:
 
-1. [install zig](https://ziglang.org/learn/getting-started/#installing-zig),
+1. [install zig](https://ziglang.org/learn/getting-started/#installing-zig) (this implementation uses zig 0.12),
 2. clone the repository: `git@github.com:InfiniteRain/zig-lox.git`,
 3. cd into the cloned repository: `cd zig-lox`,
 4. use the runtime in one of the following ways:
